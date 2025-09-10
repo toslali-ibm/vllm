@@ -93,6 +93,8 @@ class OpenAIServingCompletion(OpenAIServing):
             - suffix (the language models we currently support do not support
             suffix)
         """
+        server_hit_event = EventOut(event_type="SERVER_HIT", timestamp=time.monotonic())
+
         error_check_ret = await self._check_model(request)
         if error_check_ret is not None:
             return error_check_ret
@@ -293,6 +295,8 @@ class OpenAIServingCompletion(OpenAIServing):
                 tokenizer,
                 request_metadata,
             )
+            response.events.append(server_hit_event)
+
         except asyncio.CancelledError:
             return self.create_error_response("Client disconnected")
         except ValueError as e:
