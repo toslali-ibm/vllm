@@ -1577,6 +1577,9 @@ class CompletionResponseChoice(OpenAIBaseModel):
     prompt_logprobs: Optional[list[Optional[dict[int, Logprob]]]] = None
     prompt_token_ids: Optional[list[int]] = None  # For prompt
 
+class EventOut(OpenAIBaseModel):
+    event_type: str
+    timestamp: float
 
 class CompletionResponse(OpenAIBaseModel):
     id: str = Field(default_factory=lambda: f"cmpl-{random_uuid()}")
@@ -1592,6 +1595,8 @@ class CompletionResponse(OpenAIBaseModel):
     # vLLM-specific fields that are not in OpenAI spec
     kv_transfer_params: Optional[dict[str, Any]] = Field(
         default=None, description="KVTransfer parameters.")
+    
+    events: list[EventOut] = []
 
 
 class CompletionResponseStreamChoice(OpenAIBaseModel):

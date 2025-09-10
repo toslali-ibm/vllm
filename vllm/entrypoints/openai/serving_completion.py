@@ -22,7 +22,8 @@ from vllm.entrypoints.openai.protocol import (CompletionLogProbs,
                                               CompletionResponseChoice,
                                               CompletionResponseStreamChoice,
                                               CompletionStreamResponse,
-                                              ErrorResponse,
+                                              ErrorResponse, 
+                                              EventOut,
                                               PromptTokenUsageInfo,
                                               RequestResponseMetadata,
                                               UsageInfo)
@@ -510,7 +511,11 @@ class OpenAIServingCompletion(OpenAIServing):
         num_generated_tokens = 0
         kv_transfer_params = None
         last_final_res = None
+        events = None 
+
         for final_res in final_res_batch:
+            events=[EventOut(event_type=e.type.name, timestamp=e.timestamp) for e in final_res.events]
+            
             last_final_res = final_res
             prompt_token_ids = final_res.prompt_token_ids
             assert prompt_token_ids is not None
@@ -601,6 +606,7 @@ class OpenAIServingCompletion(OpenAIServing):
             choices=choices,
             usage=usage,
             kv_transfer_params=kv_transfer_params,
+            events=events
         )
 
     def _create_completion_logprobs(

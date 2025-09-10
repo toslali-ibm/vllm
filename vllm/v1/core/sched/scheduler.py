@@ -503,6 +503,7 @@ class Scheduler(SchedulerInterface):
                 if self.log_stats:
                     request.record_event(EngineCoreEventType.SCHEDULED,
                                          scheduled_timestamp)
+                
                 if request.status == RequestStatus.WAITING:
                     scheduled_new_reqs.append(request)
                 elif request.status == RequestStatus.PREEMPTED:
@@ -916,6 +917,9 @@ class Scheduler(SchedulerInterface):
                                      pooler_output)
 
             if stopped:
+                if self.log_stats:
+                    request.record_event(EngineCoreEventType.FINISHED, time.monotonic())
+                    
                 kv_transfer_params = self._free_request(request)
                 if status_before_stop == RequestStatus.RUNNING:
                     stopped_running_reqs.add(request)
@@ -1077,7 +1081,7 @@ class Scheduler(SchedulerInterface):
         self.waiting.add_request(request)
         self.requests[request.request_id] = request
         if self.log_stats:
-            request.record_event(EngineCoreEventType.QUEUED)
+            request.record_event(EngineCoreEventType.QUEUED, time.monotonic())
 
     def finish_requests(
         self,

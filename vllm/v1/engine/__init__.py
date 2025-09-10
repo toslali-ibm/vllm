@@ -72,7 +72,7 @@ class EngineCoreEventType(enum.IntEnum):
     QUEUED = 1
     SCHEDULED = 2
     PREEMPTED = 3
-
+    FINISHED = 4
 
 class EngineCoreEvent(msgspec.Struct):
     """A timestamped engine core event associated with a request.

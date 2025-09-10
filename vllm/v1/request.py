@@ -186,11 +186,13 @@ class Request:
         timestamp: Optional[float] = None,
     ) -> None:
         self.events.append(EngineCoreEvent.new_event(event_type, timestamp))
+        print(f"----- [Request {self.request_id} event: {event_type.name}, timestamp: {timestamp}]")
 
     def take_events(self) -> Optional[list[EngineCoreEvent]]:
         if not self.events:
             return None
-        events, self.events = self.events, []
+        # events, self.events = self.events, []
+        events = self.events
         return events
 
 
