@@ -1580,6 +1580,7 @@ class CompletionResponseChoice(OpenAIBaseModel):
 class EventOut(OpenAIBaseModel):
     event_type: str
     timestamp: float
+    step: Optional[int] = None
 
 class CompletionResponse(OpenAIBaseModel):
     id: str = Field(default_factory=lambda: f"cmpl-{random_uuid()}")

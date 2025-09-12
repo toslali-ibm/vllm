@@ -49,6 +49,7 @@ class Scheduler(SchedulerInterface):
         include_finished_set: bool = False,
         log_stats: bool = False,
     ) -> None:
+        self.STEP: int = 0  # class variable to track schedule() calls
         self.vllm_config = vllm_config
         self.scheduler_config = vllm_config.scheduler_config
         self.cache_config = vllm_config.cache_config
@@ -185,6 +186,7 @@ class Scheduler(SchedulerInterface):
         # num_tokens_with_spec. This is general enough to cover
         # chunked prefills, prefix caching, speculative decoding,
         # and the "jump decoding" optimization in the future.
+        self.STEP += 1
 
         scheduled_new_reqs: list[Request] = []
         scheduled_resumed_reqs: list[Request] = []
@@ -274,7 +276,7 @@ class Scheduler(SchedulerInterface):
                     preempted_req.num_computed_tokens = 0
                     if self.log_stats:
                         preempted_req.record_event(
-                            EngineCoreEventType.PREEMPTED, scheduled_timestamp)
+                            EngineCoreEventType.PREEMPTED, scheduled_timestamp, self.STEP)
 
                     self.waiting.prepend_request(preempted_req)
                     preempted_reqs.append(preempted_req)
@@ -502,7 +504,7 @@ class Scheduler(SchedulerInterface):
                 self.running.append(request)
                 if self.log_stats:
                     request.record_event(EngineCoreEventType.SCHEDULED,
-                                         scheduled_timestamp)
+                                         scheduled_timestamp, self.STEP)
                 
                 if request.status == RequestStatus.WAITING:
                     scheduled_new_reqs.append(request)
@@ -918,7 +920,7 @@ class Scheduler(SchedulerInterface):
 
             if stopped:
                 if self.log_stats:
-                    request.record_event(EngineCoreEventType.FINISHED, time.monotonic())
+                    request.record_event(EngineCoreEventType.FINISHED, time.monotonic(), self.STEP)
                     
                 kv_transfer_params = self._free_request(request)
                 if status_before_stop == RequestStatus.RUNNING:
@@ -1081,7 +1083,7 @@ class Scheduler(SchedulerInterface):
         self.waiting.add_request(request)
         self.requests[request.request_id] = request
         if self.log_stats:
-            request.record_event(EngineCoreEventType.QUEUED, time.monotonic())
+            request.record_event(EngineCoreEventType.QUEUED, time.monotonic(), self.STEP)
 
     def finish_requests(
         self,

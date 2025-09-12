@@ -313,7 +313,10 @@ class OpenAIServingCompletion(OpenAIServing):
                 yield "data: [DONE]\n\n"
 
             return fake_stream_generator()
-
+        
+        server_left_event = EventOut(event_type="SERVER_LEFT", timestamp=time.monotonic())
+        response.events.append(server_left_event)
+        
         return response
 
     async def completion_stream_generator(
@@ -518,7 +521,7 @@ class OpenAIServingCompletion(OpenAIServing):
         events = None 
 
         for final_res in final_res_batch:
-            events=[EventOut(event_type=e.type.name, timestamp=e.timestamp) for e in final_res.events]
+            events=[EventOut(event_type=e.type.name, timestamp=e.timestamp, step=e.step) for e in final_res.events]
             
             last_final_res = final_res
             prompt_token_ids = final_res.prompt_token_ids
