@@ -56,6 +56,8 @@ logger = init_logger(__name__)
 POLLING_TIMEOUT_S = 2.5
 HANDSHAKE_TIMEOUT_MINS = 5
 
+VLLM_INST_METRICS = {}
+
 _R = TypeVar('_R')  # Return type for collective_rpc
 
 
@@ -289,6 +291,20 @@ class EngineCore:
         if not self.scheduler.has_requests():
             return {}, False
         scheduler_output = self.scheduler.schedule()
+        ## MERT: get metrics from scheduler_output
+        metrics = scheduler_output.metrics
+
+        # Populate metrics dict, keyed by step_index
+        VLLM_INST_METRICS[metrics.step_index] = {
+            "num_finished_reqs": metrics.num_finished_reqs,
+            "num_decode_reqs": metrics.num_decode_reqs,
+            "num_finished_tokens": metrics.num_finished_tokens,
+            "num_cache_miss_tokens": metrics.num_cache_miss_tokens,
+            "num_cache_hit_tokens": metrics.num_cache_hit_tokens,
+            # loop_time will be filled in EngineCoreProc
+            "loop_time": None,
+        }
+
         model_output = self.execute_model_with_error_logging(
             self.model_executor.execute_model,  # type: ignore
             scheduler_output)
@@ -727,15 +743,37 @@ class EngineCoreProc(EngineCore):
     def _init_data_parallel(self, vllm_config: VllmConfig):
         pass
 
+    def mert_print_metrics(self, metrics_dict):
+        for step, vals in sorted(metrics_dict.items()):
+            print(f"--- step {step} ---")
+            for k, v in vals.items():
+                print(f"{k} = {v}")
+            print()  # blank line between steps
+
     def run_busy_loop(self):
         """Core busy loop of the EngineCore."""
 
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
             # 1) Poll the input queue until there is work to do.
+            start_time = time.perf_counter()
             self._process_input_queue()
+
             # 2) Step the engine core and return the outputs.
-            self._process_engine_step()
+            ran_model = self._process_engine_step()
+            end_time = time.perf_counter()
+            # MERT: record loop execution time ONLY FOR WHEN THERE IS REQS. 
+            loop_time = end_time - start_time
+
+            # Only record loop time if scheduler had requests
+            if ran_model:
+                # last step_index = max key in VLLM_INST_METRICS
+                if VLLM_INST_METRICS:
+                    last_step = max(VLLM_INST_METRICS.keys())
+                    VLLM_INST_METRICS[last_step]["loop_time"] = loop_time
+            self.mert_print_metrics(VLLM_INST_METRICS)
+
+
 
     def _process_input_queue(self):
         """Exits when an engine step needs to be performed."""

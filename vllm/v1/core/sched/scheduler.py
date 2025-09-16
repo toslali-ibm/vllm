@@ -22,7 +22,7 @@ from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
 from vllm.v1.core.kv_cache_manager import KVCacheBlocks, KVCacheManager
 from vllm.v1.core.sched.interface import SchedulerInterface
 from vllm.v1.core.sched.output import (CachedRequestData, NewRequestData,
-                                       SchedulerOutput)
+                                       SchedulerOutput, SchedulerMetrics)
 from vllm.v1.core.sched.request_queue import (SchedulingPolicy,
                                               create_request_queue)
 from vllm.v1.core.sched.utils import check_stop, remove_all
@@ -188,6 +188,12 @@ class Scheduler(SchedulerInterface):
         # and the "jump decoding" optimization in the future.
         self.STEP += 1
 
+        num_finished_reqs = 0
+        num_decode_reqs = 0
+        num_finished_tokens = 0
+        num_cache_miss_tokens = 0
+        num_cache_hit_tokens = 0
+
         scheduled_new_reqs: list[Request] = []
         scheduled_resumed_reqs: list[Request] = []
         scheduled_running_reqs: list[Request] = []
@@ -213,6 +219,11 @@ class Scheduler(SchedulerInterface):
             num_new_tokens = (request.num_tokens_with_spec +
                               request.num_output_placeholders -
                               request.num_computed_tokens)
+            
+            # MERT num_decode_reqs: if num_new_tokens == 1 and num_computed_tokens > num_prompt_tokens, then this is decode request 
+            if num_new_tokens == 1 and request.num_computed_tokens >= request.num_prompt_tokens: 
+                num_decode_reqs = num_decode_reqs + 1
+
             if (0 < self.scheduler_config.long_prefill_token_threshold <
                     num_new_tokens):
                 num_new_tokens = (
@@ -292,12 +303,19 @@ class Scheduler(SchedulerInterface):
                 break
             assert new_blocks is not None
 
+            # MERT: Cache accounting for running requests
+            num_cache_hit_tokens += request.num_computed_tokens
+            if request.num_computed_tokens < request.num_prompt_tokens:
+                num_cache_miss_tokens += num_new_tokens
+
             # Schedule the request.
             scheduled_running_reqs.append(request)
             req_to_new_blocks[request.request_id] = new_blocks
             num_scheduled_tokens[request.request_id] = num_new_tokens
             token_budget -= num_new_tokens
             req_index += 1
+
+
 
             # Speculative decode related.
             if request.spec_token_ids:
@@ -413,6 +431,17 @@ class Scheduler(SchedulerInterface):
                     # `request.num_prompt_tokens` to consider the resumed
                     # requests, which have output tokens.
                     num_new_tokens = request.num_tokens - num_computed_tokens
+
+                    ## MERT num_cache_miss_tokens and num_cache_hit_tokens: 
+                    # num_new_tokens is cache MISS, and num_computed_tokens is CACHE HIT -- 
+                    # decode - you have no CACHE MISS
+                    # Always count hits
+                    num_cache_hit_tokens += request.num_computed_tokens
+
+                    # Misses only during prefill
+                    if request.num_computed_tokens < request.num_prompt_tokens:
+                        num_cache_miss_tokens += num_new_tokens
+
                     if (0 < self.scheduler_config.long_prefill_token_threshold
                             < num_new_tokens):
                         num_new_tokens = (
@@ -575,6 +604,25 @@ class Scheduler(SchedulerInterface):
         structured_output_request_ids, grammar_bitmask = (
             self.get_grammar_bitmask(self.running,
                                      scheduled_spec_decode_tokens))
+        
+
+        # MERT: self.finished_req_ids - len will give # of finished requests
+        # iterate over request ids, and get from requests, and num_computed_tokens of each requests sum them up
+        for req_id in self.finished_req_ids:
+            req = self.requests.get(req_id)
+            if req is not None:
+                num_finished_tokens += req.num_computed_tokens
+
+        # Pack into SchedulerMetrics
+        metrics = SchedulerMetrics(
+            num_finished_reqs=num_finished_reqs,
+            num_decode_reqs=num_decode_reqs,
+            num_finished_tokens=num_finished_tokens,
+            num_cache_miss_tokens=num_cache_miss_tokens,
+            num_cache_hit_tokens=num_cache_hit_tokens,
+            step_index=self.STEP,
+        )
+
         scheduler_output = SchedulerOutput(
             scheduled_new_reqs=new_reqs_data,
             scheduled_cached_reqs=cached_reqs_data,
@@ -592,6 +640,7 @@ class Scheduler(SchedulerInterface):
             get_freed_mm_hashes(),
             structured_output_request_ids=structured_output_request_ids,
             grammar_bitmask=grammar_bitmask,
+            metrics=metrics
         )
 
         # NOTE(Kuntai): this function is designed for multiple purposes:
