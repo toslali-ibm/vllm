@@ -188,9 +188,9 @@ class Scheduler(SchedulerInterface):
         # and the "jump decoding" optimization in the future.
         self.STEP += 1
 
-        num_finished_reqs = 0
+        self.num_finished_reqs = 0
         num_decode_reqs = 0
-        num_finished_tokens = 0
+        self.num_finished_tokens = 0
         num_cache_miss_tokens = 0
         num_cache_hit_tokens = 0
 
@@ -604,20 +604,10 @@ class Scheduler(SchedulerInterface):
         structured_output_request_ids, grammar_bitmask = (
             self.get_grammar_bitmask(self.running,
                                      scheduled_spec_decode_tokens))
-        
-
-        # MERT: self.finished_req_ids - len will give # of finished requests
-        # iterate over request ids, and get from requests, and num_computed_tokens of each requests sum them up
-        for req_id in self.finished_req_ids:
-            req = self.requests.get(req_id)
-            if req is not None:
-                num_finished_tokens += req.num_computed_tokens
 
         # Pack into SchedulerMetrics
         metrics = SchedulerMetrics(
-            num_finished_reqs=num_finished_reqs,
             num_decode_reqs=num_decode_reqs,
-            num_finished_tokens=num_finished_tokens,
             num_cache_miss_tokens=num_cache_miss_tokens,
             num_cache_hit_tokens=num_cache_hit_tokens,
             step_index=self.STEP,
@@ -903,7 +893,7 @@ class Scheduler(SchedulerInterface):
         self,
         scheduler_output: SchedulerOutput,
         model_runner_output: ModelRunnerOutput,
-    ) -> dict[int, EngineCoreOutputs]:
+    ) -> tuple[dict[int, EngineCoreOutputs], int, int]:
         sampled_token_ids = model_runner_output.sampled_token_ids
         logprobs = model_runner_output.logprobs
         prompt_logprobs_dict = model_runner_output.prompt_logprobs_dict
@@ -1059,7 +1049,7 @@ class Scheduler(SchedulerInterface):
                 engine_core_outputs[0] = eco = EngineCoreOutputs()
             eco.scheduler_stats = stats
 
-        return engine_core_outputs
+        return engine_core_outputs, self.num_finished_tokens, self.num_finished_reqs
 
     def _update_request_with_output(
         self,
@@ -1181,6 +1171,7 @@ class Scheduler(SchedulerInterface):
     def _free_request(self, request: Request) -> Optional[dict[str, Any]]:
         assert request.is_finished()
 
+
         delay_free_blocks, kv_xfer_params = self._connector_finished(request)
         self.encoder_cache_manager.free(request)
         request_id = request.request_id
@@ -1190,6 +1181,10 @@ class Scheduler(SchedulerInterface):
 
         if not delay_free_blocks:
             self._free_blocks(request)
+
+        # MERT: update finished tokens
+        self.num_finished_tokens += request.num_computed_tokens
+        self.num_finished_reqs += 1
 
         return kv_xfer_params
 

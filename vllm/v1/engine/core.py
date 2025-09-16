@@ -294,22 +294,23 @@ class EngineCore:
         ## MERT: get metrics from scheduler_output
         metrics = scheduler_output.metrics
 
+        model_output = self.execute_model_with_error_logging(
+            self.model_executor.execute_model,  # type: ignore
+            scheduler_output)
+        engine_core_outputs, num_finished_tokens, num_finished_reqs = self.scheduler.update_from_output(
+            scheduler_output, model_output)  # type: ignore
+        
+
         # Populate metrics dict, keyed by step_index
         VLLM_INST_METRICS[metrics.step_index] = {
-            "num_finished_reqs": metrics.num_finished_reqs,
+            "num_finished_reqs": num_finished_reqs,
             "num_decode_reqs": metrics.num_decode_reqs,
-            "num_finished_tokens": metrics.num_finished_tokens,
+            "num_finished_tokens": num_finished_tokens,
             "num_cache_miss_tokens": metrics.num_cache_miss_tokens,
             "num_cache_hit_tokens": metrics.num_cache_hit_tokens,
             # loop_time will be filled in EngineCoreProc
             "loop_time": None,
         }
-
-        model_output = self.execute_model_with_error_logging(
-            self.model_executor.execute_model,  # type: ignore
-            scheduler_output)
-        engine_core_outputs = self.scheduler.update_from_output(
-            scheduler_output, model_output)  # type: ignore
 
         return (engine_core_outputs,
                 scheduler_output.total_num_scheduled_tokens > 0)

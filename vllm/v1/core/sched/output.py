@@ -111,9 +111,7 @@ class CachedRequestData:
 
 @dataclass
 class SchedulerMetrics:
-    num_finished_reqs: int = 0
     num_decode_reqs: int = 0
-    num_finished_tokens: int = 0
     num_cache_miss_tokens: int = 0
     num_cache_hit_tokens: int = 0
     step_index: int = 0
