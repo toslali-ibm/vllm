@@ -59,12 +59,12 @@ HANDSHAKE_TIMEOUT_MINS = 5
 
 VLLM_INST_METRICS = {}
 FLUSH_INTERVAL_STEPS = int(os.getenv("FLUSH_INTERVAL_STEPS", 20))
-metrics_part = os.getenv("METRICS_FILENAME_PREFIX", "metrics")
+METRICS_FILENAME = os.getenv("METRICS_FILENAME", "metrics")
 
 
 def flush_metrics(metrics_dict, last_step, filepath="{}_{}.json"):
     # Use last_step to create a unique filename
-    file_name = filepath.format(last_step)
+    file_name = filepath.format(METRICS_FILENAME, last_step)
 
     with open(file_name, "a") as f:
         # Write the metrics as a JSON object with an indent for readability
