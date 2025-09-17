@@ -16,6 +16,7 @@ from typing import Any, Callable, Optional, TypeVar, Union
 
 import msgspec
 import zmq
+import json
 
 from vllm.config import ParallelConfig, VllmConfig
 from vllm.distributed import stateless_destroy_torch_distributed_process_group
@@ -57,6 +58,19 @@ POLLING_TIMEOUT_S = 2.5
 HANDSHAKE_TIMEOUT_MINS = 5
 
 VLLM_INST_METRICS = {}
+FLUSH_INTERVAL_STEPS = 20
+
+def flush_metrics(metrics_dict, last_step, filepath="metrics_{}.json"):
+    # Use last_step to create a unique filename
+    file_name = filepath.format(last_step)
+
+    with open(file_name, "a") as f:
+        # Write the metrics as a JSON object with an indent for readability
+        json.dump(metrics_dict, f, indent=2)
+        f.write("\n")  # Ensure each entry is on a new line
+
+    # Clear the dictionary to free memory
+    metrics_dict.clear()
 
 _R = TypeVar('_R')  # Return type for collective_rpc
 
@@ -773,6 +787,11 @@ class EngineCoreProc(EngineCore):
                     last_step = max(VLLM_INST_METRICS.keys())
                     VLLM_INST_METRICS[last_step]["loop_time"] = loop_time
             self.mert_print_metrics(VLLM_INST_METRICS)
+
+            # flush metrics periodically
+            last_step = max(VLLM_INST_METRICS.keys())
+            if last_step % FLUSH_INTERVAL_STEPS == 0:
+                flush_metrics(VLLM_INST_METRICS, last_step)
 
 
 
