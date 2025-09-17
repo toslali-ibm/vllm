@@ -392,6 +392,9 @@ class EngineCore:
         return engine_core_outputs, model_executed
 
     def shutdown(self):
+        # MERT: record/flush all data upon shutdown
+        last_step = max(VLLM_INST_METRICS.keys())
+        flush_metrics(VLLM_INST_METRICS, last_step)
         self.structured_output_manager.clear_backend()
         if self.model_executor:
             self.model_executor.shutdown()
