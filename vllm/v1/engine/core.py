@@ -58,9 +58,11 @@ POLLING_TIMEOUT_S = 2.5
 HANDSHAKE_TIMEOUT_MINS = 5
 
 VLLM_INST_METRICS = {}
-FLUSH_INTERVAL_STEPS = 20
+FLUSH_INTERVAL_STEPS = int(os.getenv("FLUSH_INTERVAL_STEPS", 20))
+metrics_part = os.getenv("METRICS_FILENAME_PREFIX", "metrics")
 
-def flush_metrics(metrics_dict, last_step, filepath="metrics_{}.json"):
+
+def flush_metrics(metrics_dict, last_step, filepath="{}_{}.json"):
     # Use last_step to create a unique filename
     file_name = filepath.format(last_step)
 
