@@ -791,7 +791,7 @@ class EngineCoreProc(EngineCore):
                 if VLLM_INST_METRICS:
                     last_step = max(VLLM_INST_METRICS.keys())
                     VLLM_INST_METRICS[last_step]["loop_time"] = loop_time
-            self.mert_print_metrics(VLLM_INST_METRICS)
+            # self.mert_print_metrics(VLLM_INST_METRICS)
 
             # flush metrics periodically
             last_step = max(VLLM_INST_METRICS.keys())
