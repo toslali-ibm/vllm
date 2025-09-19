@@ -150,23 +150,9 @@ async def async_request_openai_completions_non_streaming(
 
                 async for chunk_bytes in response.content.iter_any():
                     chunk_bytes = chunk_bytes.strip()
-                    if not chunk_bytes:
-                        continue
-
-                    messages = handler.add_chunk(chunk_bytes)
-                    for message in messages:
-                        if message.startswith(":"):
-                            continue
-
-                        chunk = message.removeprefix("data: ")
-                        if chunk != "[DONE]":
-                            data = json.loads(chunk)
-                            if choices := data.get("choices"):
-                                text = choices[0].get("text")
-                                generated_text += text or ""
-                            elif usage := data.get("usage"):
-                                output.output_tokens = usage.get(
-                                    "completion_tokens")
+                    output.generated_text = json.loads(chunk_bytes)["choices"][0]["text"]
+                    
+                    output.output_tokens = json.loads(chunk_bytes)["usage"].get("completion_tokens")
             else:
                 output.error = response.reason or ""
                 output.generated_text = ""

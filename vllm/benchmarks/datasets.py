@@ -38,6 +38,7 @@ from vllm.multimodal import MultiModalDataDict
 from vllm.multimodal.image import convert_image_mode
 from vllm.transformers_utils.tokenizer import AnyTokenizer, get_lora_tokenizer
 from vllm.utils import PlaceholderModule
+from vllm.benchmarks.constants import *
 
 try:
     from datasets import load_dataset
@@ -66,6 +67,11 @@ logger = logging.getLogger(__name__)
 # Data Classes
 # -----------------------------------------------------------------------------
 
+# analysis over sharegpt
+# warmstart with Sonnet/Random
+# train vs test - odd vs even
+# output length random
+# input length filter
 
 @dataclass
 class SampleRequest:
@@ -507,7 +513,7 @@ class RandomDataset(BenchmarkDataset):
             )
 
         logger.info(
-            "Sampling input_len from [%s, %s] and output_len from [%s, %s]",
+            "Sampling warmstart random input_len from [%s, %s] and output_len from [%s, %s]",
             input_low,
             input_high,
             output_low,
@@ -1005,6 +1011,89 @@ class ShareGPTDataset(BenchmarkDataset):
         self.maybe_oversample_requests(samples, num_requests, request_id_prefix)
         return samples
 
+# -----------------------------------------------------------------------------
+# ShareGPT Dataset Implementation
+# -----------------------------------------------------------------------------
+
+
+class ShareGPTRandomDataset(BenchmarkDataset):
+    """
+    Implements the ShareGPT dataset.  Loads data from a JSON file and generates
+    sample requests based on conversation turns.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.load_data()
+
+    def load_data(self) -> None:
+        if self.dataset_path is None:
+            raise ValueError("dataset_path must be provided for loading data.")
+
+        with open(self.dataset_path, encoding="utf-8") as f:
+            self.data = json.load(f)
+        # Filter entries with at least two conversation turns.
+        self.data = [
+            entry for entry in self.data
+            if "conversations" in entry and len(entry["conversations"]) >= 2
+        ]
+        random.seed(self.random_seed)
+        random.shuffle(self.data)
+
+    def sample(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        num_requests: int,
+        lora_path: Optional[str] = None,
+        max_loras: Optional[int] = None,
+        input_len_min: Optional[int] = DEFAULT_INPUT_LEN_MIN,
+        input_len_max: Optional[int] = DEFAULT_INPUT_LEN_MAX,
+        output_len_min: Optional[int] = DEFAULT_OUTPUT_LEN_MIN,
+        output_len_max: Optional[int] = DEFAULT_OUTPUT_LEN_MAX,
+        max_model_len: int = 8192,
+        mode: str = "train",
+        enable_multimodal_chat: bool = False,
+        request_id_prefix: str = "",
+        **kwargs,
+    ) -> list:
+        samples: list = []
+        ind = 0
+        for entry_idx, entry in enumerate(self.data):
+            if len(samples) >= num_requests:
+                break
+            # Take every even entry (starting from 0) for train
+            if mode == "train" and entry_idx % 2 == 1:
+                continue
+            # Take every odd entry (starting from 1) for test
+            if mode == "test" and entry_idx % 2 == 0:
+                continue
+            prompt, completion = (
+                entry["conversations"][0]["value"],
+                entry["conversations"][1]["value"],
+            )
+
+            prompt_ids = tokenizer(prompt).input_ids
+            prompt_len = len(prompt_ids)
+            if prompt_len >= input_len_min and prompt_len <= input_len_max:
+                # Randomly generated output lengths
+                output_len = np.random.randint(output_len_min, min(output_len_max, max(max_model_len - prompt_len - 10, output_len_min+1)))
+                if not is_valid_sequence(prompt_len,
+                                        output_len,
+                                        skip_min_output_len_check=output_len
+                                        is not None):
+                    continue
+                samples.append(
+                    SampleRequest(
+                        prompt=prompt,
+                        prompt_len=prompt_len,
+                        expected_output_len=output_len,
+                        request_id=request_id_prefix + str(ind),
+                    ))
+                ind += 1
+            else:
+                continue
+        return samples
+
 
 def add_dataset_parser(parser: FlexibleArgumentParser):
     parser.add_argument("--seed", type=int, default=0)
@@ -1017,10 +1106,10 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
     parser.add_argument(
         "--dataset-name",
         type=str,
-        default="prefix_repetition_with_random_lengths",
+        default="sharegpt-random",
         choices=[
             "sharegpt", "burstgpt", "sonnet", "random", "random-mm", "hf", 
-            "custom", "prefix_repetition", "spec_bench"
+            "custom", "prefix_repetition", "spec_bench", "sharegpt-random",
         ],
         help="Name of the dataset to benchmark on.",
     )
@@ -1098,6 +1187,36 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
         type=int,
         default=None,
         help="Output length for each request. Overrides the output length "
+        "from the ShareGPT dataset.",
+    )
+
+    sharegpt_group.add_argument(
+        "--sharegpt-output-len-min",
+        type=int,
+        default=None,
+        help="Min Output length for each request. Overrides the output length "
+        "from the ShareGPT dataset.",
+    )
+
+    sharegpt_group.add_argument(
+        "--sharegpt-output-len-max",
+        type=int,
+        default=None,
+        help="Max Output length for each request. Overrides the output length "
+        "from the ShareGPT dataset.",
+    )
+    sharegpt_group.add_argument(
+        "--sharegpt-input-len-min",
+        type=int,
+        default=None,
+        help="Min prompt length for each request. Used to filter prompts "
+        "from the ShareGPT dataset.",
+    )
+    sharegpt_group.add_argument(
+        "--sharegpt-input-len-max",
+        type=int,
+        default=None,
+        help="Max prompt length for each request. Used to filter prompts "
         "from the ShareGPT dataset.",
     )
 
@@ -1342,7 +1461,17 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
         help="Max output tokens per request",
     )
 
-def get_samples(args, tokenizer, max_model_len = 8192) -> list[SampleRequest]:
+def get_warmstart_samples(args, tokenizer, warmstart_num_prompts = 50) -> list[SampleRequest]:
+    dataset = RandomDataset(random_seed=args.seed, dataset_path=args.dataset_path)
+    
+    warmstart_requests = dataset.sample(
+        num_requests=warmstart_num_prompts,
+        tokenizer=tokenizer,
+    )
+
+    return warmstart_requests
+
+def get_samples(args, tokenizer, max_model_len = 8192, experiment_mode = "train") -> list[SampleRequest]:
 
     if not hasattr(args, "request_id_prefix"):
         args.request_id_prefix = ""
@@ -1497,6 +1626,18 @@ def get_samples(args, tokenizer, max_model_len = 8192) -> list[SampleRequest]:
                 num_requests=args.num_prompts,
                 output_len=args.sharegpt_output_len,
                 request_id_prefix=args.request_id_prefix,
+            ),
+            "sharegpt-random": lambda: ShareGPTRandomDataset(
+                random_seed=args.seed, dataset_path=args.dataset_path
+            ).sample(
+                tokenizer=tokenizer,
+                num_requests=args.num_prompts,
+                input_len_min=args.sharegpt_input_len_min,
+                input_len_max=args.sharegpt_input_len_max,
+                output_len_min=args.sharegpt_output_len_min,
+                output_len_max=args.sharegpt_output_len_max,
+                request_id_prefix=args.request_id_prefix,
+                mode=experiment_mode,
             ),
             "burstgpt": lambda: BurstGPTDataset(
                 random_seed=args.seed, dataset_path=args.dataset_path
@@ -2718,7 +2859,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
             prefix_tokens = _generate_exact_length_tokens(prefix_len)
 
             for _ in range(prompts_per_prefix):
-                input_len = int(prefix_len * (1 + prefix_hit_rate/100)) + np.random.randint(2, 10) # small padding of tokens
+                input_len = int(prefix_len * (100/prefix_hit_rate)) + np.random.randint(2, 10) # small padding of tokens
                 suffix_len = input_len - prefix_len
                 suffix_tokens = _generate_exact_length_tokens(suffix_len)
 
