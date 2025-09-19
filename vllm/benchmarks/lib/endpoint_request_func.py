@@ -68,6 +68,7 @@ class RequestFuncInput:
     model: str
     model_name: Optional[str] = None
     logprobs: Optional[int] = None
+    extra_headers: Optional[dict] = None
     extra_body: Optional[dict] = None
     multi_modal_content: Optional[Union[dict, list[dict]]] = None
     ignore_eos: bool = False
@@ -81,6 +82,7 @@ class RequestFuncOutput:
     generated_text: str = ""
     success: bool = False
     latency: float = 0.0
+    input_text: str = "" 
     output_tokens: int = 0
     ttft: float = 0.0  # Time to first token
     itl: list[float] = field(
@@ -88,7 +90,95 @@ class RequestFuncOutput:
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
     error: str = ""
+    start_time: float = 0.0
 
+
+async def async_request_openai_completions_non_streaming(
+    request_func_input: RequestFuncInput,
+    session: aiohttp.ClientSession,
+    pbar: Optional[tqdm] = None,
+) -> RequestFuncOutput:
+    """The async request function for the OpenAI Completions API.
+
+    Args:
+        request_func_input: The input for the request function.
+        pbar: The progress bar to display the progress.
+
+    Returns:
+        The output of the request function.
+    """
+    api_url = request_func_input.api_url
+    assert api_url.endswith(
+        ("completions", "profile")
+    ), "OpenAI Completions API URL must end with 'completions' or 'profile'."
+
+    payload = {
+        "model": request_func_input.model_name
+        if request_func_input.model_name else request_func_input.model,
+        "prompt": request_func_input.prompt,
+        "temperature": 0.0,
+        "repetition_penalty": 1.0,
+        "max_tokens": request_func_input.output_len,
+        "logprobs": request_func_input.logprobs,
+        "stream": False
+    }
+    if request_func_input.ignore_eos:
+        payload["ignore_eos"] = request_func_input.ignore_eos
+    if request_func_input.extra_body:
+        payload.update(request_func_input.extra_body)
+    headers = {
+        "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"
+    }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
+    if request_func_input.request_id:
+        headers["x-request-id"] = request_func_input.request_id
+
+    output = RequestFuncOutput()
+    output.prompt_len = request_func_input.prompt_len
+    output.input_text = request_func_input.prompt
+
+    st = time.perf_counter()
+    output.start_time = st
+    try:
+        async with session.post(url=api_url, json=payload,
+                                headers=headers) as response:
+            if response.status == 200:
+                output.latency = time.perf_counter() - st
+                output.success = True
+                handler = StreamedResponseHandler()
+
+                async for chunk_bytes in response.content.iter_any():
+                    chunk_bytes = chunk_bytes.strip()
+                    if not chunk_bytes:
+                        continue
+
+                    messages = handler.add_chunk(chunk_bytes)
+                    for message in messages:
+                        if message.startswith(":"):
+                            continue
+
+                        chunk = message.removeprefix("data: ")
+                        if chunk != "[DONE]":
+                            data = json.loads(chunk)
+                            if choices := data.get("choices"):
+                                text = choices[0].get("text")
+                                generated_text += text or ""
+                            elif usage := data.get("usage"):
+                                output.output_tokens = usage.get(
+                                    "completion_tokens")
+            else:
+                output.error = response.reason or ""
+                output.generated_text = ""
+                output.success = False
+    except Exception: 
+        output.success = False
+        exc_info = sys.exc_info()
+        output.error = "".join(traceback.format_exception(*exc_info))
+
+    if pbar:
+        pbar.update(1)
+    return output
 
 async def async_request_openai_completions(
     request_func_input: RequestFuncInput,
@@ -122,6 +212,7 @@ async def async_request_openai_completions(
             "include_usage": True,
         },
     }
+
     if request_func_input.ignore_eos:
         payload["ignore_eos"] = request_func_input.ignore_eos
     if request_func_input.extra_body:
@@ -129,6 +220,8 @@ async def async_request_openai_completions(
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -137,6 +230,7 @@ async def async_request_openai_completions(
 
     generated_text = ""
     st = time.perf_counter()
+    output.start_time = st
     most_recent_timestamp = st
     try:
         async with session.post(url=api_url, json=payload,
@@ -258,6 +352,8 @@ async def async_request_openai_chat_completions(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -267,6 +363,7 @@ async def async_request_openai_chat_completions(
     generated_text = ""
     ttft = 0.0
     st = time.perf_counter()
+    output.start_time = st
     most_recent_timestamp = st
     try:
         async with session.post(url=api_url, json=payload,
@@ -364,6 +461,8 @@ async def async_request_openai_audio(
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -389,6 +488,7 @@ async def async_request_openai_audio(
         generated_text = ""
         ttft = 0.0
         st = time.perf_counter()
+        output.start_time = st
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url,
@@ -468,6 +568,7 @@ async def async_request_openai_embeddings(
 
     output = RequestFuncOutput()
     st = time.perf_counter()
+    output.start_time = st
     try:
         async with session.post(
             url=api_url,
@@ -496,8 +597,8 @@ async def async_request_openai_embeddings(
 
 # TODO: Add more request functions for different API protocols.
 ASYNC_REQUEST_FUNCS = {
-    "vllm": async_request_openai_completions,
-    "openai": async_request_openai_completions,
+    "vllm": async_request_openai_completions_non_streaming,
+    "openai": async_request_openai_completions_non_streaming,
     "openai-chat": async_request_openai_chat_completions,
     "openai-audio": async_request_openai_audio,
     "openai-embeddings": async_request_openai_embeddings,
