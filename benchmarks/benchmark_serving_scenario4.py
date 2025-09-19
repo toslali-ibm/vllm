@@ -37,7 +37,8 @@ from tqdm.asyncio import tqdm
 from transformers import PreTrainedTokenizerBase
 
 from vllm.benchmarks.datasets import (SampleRequest, add_dataset_parser,
-                                      get_samples)
+                                      get_samples, get_warmstart_samples)
+from vllm.benchmarks.constants import *
 from vllm.utils import FlexibleArgumentParser
 from vllm.benchmarks.lib.endpoint_request_func import (
     ASYNC_REQUEST_FUNCS, OPENAI_COMPATIBLE_BACKENDS, RequestFuncInput,
@@ -51,8 +52,6 @@ MILLISECONDS_TO_SECONDS_CONVERSION = 1000
 
 TERM_PLOTLIB_AVAILABLE = ((importlib.util.find_spec("termplotlib") is not None)
                           and (shutil.which("gnuplot") is not None))
-
-DEFAULT_MAX_MODEL_LEN = 8192
 
 # Warmstart
 
@@ -419,6 +418,7 @@ async def benchmark(
     model_id: str,
     model_name: str,
     tokenizer: PreTrainedTokenizerBase,
+    warmstart_requests: list[SampleRequest],
     input_requests: list[SampleRequest],
     logprobs: Optional[int],
     request_rate: float,
@@ -466,60 +466,40 @@ async def benchmark(
         timeout=aiohttp.ClientTimeout(total=6 * 60 * 60),
     )
 
-    print("Starting initial single prompt test run...")
-    test_prompt, test_prompt_len, test_output_len, test_mm_content = (
-        input_requests[0].prompt,
-        input_requests[0].prompt_len,
-        input_requests[0].expected_output_len,
-        input_requests[0].multi_modal_data,
-    )
+    print("Starting warmstart prompts...")
 
-    assert (test_mm_content is None or isinstance(test_mm_content, dict)
-            or (isinstance(test_mm_content, list)
-                and all(isinstance(item, dict) for item in test_mm_content))
-            ), "multi_modal_data must be a dict or list[dict]"
-    test_input = RequestFuncInput(
-        model=model_id,
-        model_name=model_name,
-        prompt=test_prompt,
-        api_url=api_url,
-        prompt_len=test_prompt_len,
-        output_len=test_output_len,
-        logprobs=logprobs,
-        multi_modal_content=test_mm_content,
-        ignore_eos=ignore_eos,
-        extra_body=extra_body,
-    )
+    for idx in range(DEFAULT_WARMSTART_PROMPT_COUNT):
+        warmstart_prompt, warmstart_prompt_len, warmstart_output_len, warmstart_mm_content = (
+            warmstart_requests[idx].prompt,
+            warmstart_requests[idx].prompt_len,
+            warmstart_requests[idx].expected_output_len,
+            warmstart_requests[idx].multi_modal_data,
+        )
 
-    test_output = await wait_for_endpoint(
-        request_func,
-        test_input,
-        session,
-        timeout_seconds=ready_check_timeout_sec,
-    )
-    if not test_output.success:
-        raise ValueError(
-            "Initial test run failed - Please make sure benchmark arguments "
-            f"are correctly specified. Error: {test_output.error}")
-    else:
-        print("Initial test run completed. Starting main benchmark run...")
+        warmstart_input = RequestFuncInput(
+            model=model_id,
+            model_name=model_name,
+            prompt=warmstart_prompt,
+            api_url=api_url,
+            prompt_len=warmstart_prompt_len,
+            output_len=warmstart_output_len,
+            logprobs=logprobs,
+            multi_modal_content=warmstart_mm_content,
+            ignore_eos=ignore_eos,
+            extra_body=extra_body,
+        )
 
-    if profile:
-        print("Starting profiler...")
-        profile_input = RequestFuncInput(model=model_id,
-                                         model_name=model_name,
-                                         prompt=test_prompt,
-                                         api_url=base_url + "/start_profile",
-                                         prompt_len=test_prompt_len,
-                                         output_len=test_output_len,
-                                         logprobs=logprobs,
-                                         multi_modal_content=test_mm_content,
-                                         ignore_eos=ignore_eos,
-                                         extra_body=extra_body)
-        profile_output = await request_func(request_func_input=profile_input,
-                                            session=session)
-        if profile_output.success:
-            print("Profiler started")
+        warmstart_output = await wait_for_endpoint(
+            request_func,
+            warmstart_input,
+            session,
+            timeout_seconds=ready_check_timeout_sec,
+        )
+        if not warmstart_output.success:
+            raise ValueError(
+                "Initial test run failed - Please make sure benchmark arguments "
+                f"are correctly specified. Error: {warmstart_output.error}")
+    print("Initial test run completed. Starting main benchmark run...")
 
     distribution = ("Poisson process"
                     if burstiness == 1.0 else "Gamma distribution")
@@ -651,7 +631,7 @@ async def benchmark(
 
     if isinstance(metrics, BenchmarkMetrics):
         result = {
-            "duration": benchmark_duration,
+            "duration(s)": benchmark_duration,
             "completed": metrics.completed,
             "total_input_tokens": metrics.total_input,
             "total_output_tokens": metrics.total_output,
@@ -870,6 +850,12 @@ def add_cli_args(parser: argparse.ArgumentParser):
         type=str,
         help=
         "Name or path of the tokenizer, if not using the default tokenizer.",  # noqa: E501
+    )
+    parser.add_argument(
+        "--experiment-mode",
+        type=str,
+        default="train",
+        help = "Experiment mode - train/test"
     )
     parser.add_argument("--use-beam-search", action="store_true")
     parser.add_argument(
@@ -1100,7 +1086,8 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
             "'--dataset-path' if required.")
 
     # Load the dataset.
-    input_requests = get_samples(args, tokenizer, DEFAULT_MAX_MODEL_LEN)
+    warmstart_requests = get_warmstart_samples(args, tokenizer, DEFAULT_WARMSTART_PROMPT_COUNT)
+    input_requests = get_samples(args, tokenizer, DEFAULT_MAX_MODEL_LEN, experiment_mode=args.experiment_mode)
     goodput_config_dict = check_goodput_args(args)
 
     # Collect the sampling parameters.
@@ -1133,6 +1120,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
         model_id=model_id,
         model_name=model_name,
         tokenizer=tokenizer,
+        warmstart_requests=warmstart_requests,
         input_requests=input_requests,
         logprobs=args.logprobs,
         request_rate=args.request_rate,
@@ -1148,7 +1136,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
         max_concurrency=args.max_concurrency,
         lora_modules=args.lora_modules,
         extra_headers=headers,
-        extra_body=sampling_params
+        extra_body=sampling_params,
     )
 
     # Save config and results to json
@@ -1192,11 +1180,9 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
         # Save to file
     if args.save_result or args.append_result:
         base_model_id = model_id.split("/")[-1]
-        max_concurrency_str = (f"-concurrency{args.max_concurrency}"
-                               if args.max_concurrency is not None else "")
         label = label or args.backend
         
-        file_name = f"{label}-{args.request_rate}qps{max_concurrency_str}-{base_model_id}-{current_dt}.json"  # noqa
+        file_name = f"{label}-{args.request_rate}qps-{base_model_id}-{current_dt}-{args.experiment_mode}.json"  # noqa
         if args.result_filename:
             file_name = args.result_filename
         if args.result_dir:
