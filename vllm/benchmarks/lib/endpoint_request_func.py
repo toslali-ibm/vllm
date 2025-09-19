@@ -89,6 +89,7 @@ class RequestFuncOutput:
         default_factory=list)  # list of inter-token latencies
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
+    events: list[dict] = None
     error: str = ""
     start_time: float = 0.0
 
@@ -153,6 +154,7 @@ async def async_request_openai_completions_non_streaming(
                     output.generated_text = json.loads(chunk_bytes)["choices"][0]["text"]
                     
                     output.output_tokens = json.loads(chunk_bytes)["usage"].get("completion_tokens")
+                    output.events = json.loads(chunk_bytes)["events"]
             else:
                 output.error = response.reason or ""
                 output.generated_text = ""

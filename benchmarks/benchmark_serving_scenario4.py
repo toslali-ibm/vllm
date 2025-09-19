@@ -665,6 +665,7 @@ async def benchmark(
             "total_token_throughput": metrics.total_token_throughput,
             "input_lens": [output.prompt_len for output in outputs],
             "errors": [output.error for output in outputs],
+            "events": [output.events for output in outputs]
         }
 
     if rps_change_events:
