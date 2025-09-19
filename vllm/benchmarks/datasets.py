@@ -1017,7 +1017,7 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
     parser.add_argument(
         "--dataset-name",
         type=str,
-        default="random",
+        default="prefix_repetition_with_random_lengths",
         choices=[
             "sharegpt", "burstgpt", "sonnet", "random", "random-mm", "hf", 
             "custom", "prefix_repetition", "spec_bench"
@@ -1308,8 +1308,41 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
         "repetition dataset.",
     )
 
+    prefix_repetition_random_lengths_group = parser.add_argument_group(
+        "prefix repetition with random lengths dataset options")
+    prefix_repetition_random_lengths_group.add_argument(
+        "--prefix-repetition-prefix-hit-rate",
+        type=int,
+        default=10,
+        help="Prefix hit rate percentage, approximately between 0-100",
+    )
 
-def get_samples(args, tokenizer) -> list[SampleRequest]:
+    prefix_repetition_random_lengths_group.add_argument(
+        "--prefix-repetition-prefix-len-min",
+        type=int,
+        default=10,
+        help="Min length of prefixes",
+    )
+    prefix_repetition_random_lengths_group.add_argument(
+        "--prefix-repetition-prefix-len-max",
+        type=int,
+        default=2000,
+        help="Max length of prefixes",
+    )
+    prefix_repetition_random_lengths_group.add_argument(
+        "--prefix-repetition-output-len-min",
+        type=int,
+        default=0,
+        help="Min output tokens per request",
+    )
+    prefix_repetition_random_lengths_group.add_argument(
+        "--prefix-repetition-output-len-max",
+        type=int,
+        default=500,
+        help="Max output tokens per request",
+    )
+
+def get_samples(args, tokenizer, max_model_len = 8192) -> list[SampleRequest]:
 
     if not hasattr(args, "request_id_prefix"):
         args.request_id_prefix = ""
@@ -1510,6 +1543,19 @@ def get_samples(args, tokenizer) -> list[SampleRequest]:
                 suffix_len=args.prefix_repetition_suffix_len,
                 num_prefixes=args.prefix_repetition_num_prefixes,
                 output_len=args.prefix_repetition_output_len,
+                request_id_prefix=args.request_id_prefix,
+            ),
+            "prefix_repetition_with_random_lengths":
+            lambda: PrefixRepetitionRandomLengthsDataset(
+                random_seed=args.seed, dataset_path=args.dataset_path
+            ).sample(
+                tokenizer=tokenizer,
+                num_requests=args.num_prompts,
+                prefix_hit_rate=args.prefix_repetition_prefix_hit_rate,
+                prefix_len_dist={"min": 0, "max": args.prefix_repetition_prefix_len_max},
+                output_len_dist={"min": args.prefix_repetition_output_len_min, "max": args.prefix_repetition_output_len_max},
+                num_prefixes=args.prefix_repetition_num_prefixes,
+                max_model_len=max_model_len,
                 request_id_prefix=args.request_id_prefix,
             ),
         }
@@ -2603,4 +2649,91 @@ class PrefixRepetitionRandomDataset(BenchmarkDataset):
                 )
 
         random.shuffle(requests)
+        return requests
+
+# -----------------------------------------------------------------------------
+# Scenario4 Prefix Repetition with random lengths Dataset Implementation
+# -----------------------------------------------------------------------------
+
+class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
+    # Default values 
+    DEFAULT_NUM_PREFIXES = 10
+    DEFAULT_PREFIX_HIT_RATE = 10
+    DEFAULT_PREFIX_LEN_MIN = 10
+    DEFAULT_PREFIX_LEN_MAX = 2000
+    DEFAULT_OUTPUT_LEN_MAX = 500
+    DEFAULT_OUTPUT_LEN_MIN = 0
+
+    def __init__(
+        self,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        random.seed(self.random_seed)
+        np.random.seed(self.random_seed)
+
+    def sample(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        num_requests: int,
+        prefix_hit_rate: int = DEFAULT_PREFIX_HIT_RATE,
+        prefix_len_dist: dict = {"min": 0, "max": DEFAULT_PREFIX_LEN_MAX},
+        num_prefixes: int = DEFAULT_NUM_PREFIXES,
+        output_len_dist: dict = {"min": DEFAULT_OUTPUT_LEN_MIN, "max": DEFAULT_OUTPUT_LEN_MAX},
+        max_model_len: int = 8192,
+        request_id_prefix: str = "",
+        **kwargs,
+    ) -> list[SampleRequest]:
+        vocab_size = tokenizer.vocab_size
+        prompts_per_prefix = num_requests // num_prefixes
+        if prompts_per_prefix == 0:
+            raise ValueError(
+                f"num_requests ({num_requests}) must be greater than or equal "
+                f"to num_prefixes ({num_prefixes})"
+            )
+
+        def _generate_exact_length_tokens(target_length: int) -> list[int]:
+            """Generate tokens that decode and re-encode to exactly
+            target_length."""
+            # Generate random tokens
+            tokens = np.random.randint(
+                0, vocab_size, size=target_length).tolist()
+            text = tokenizer.decode(tokens)
+            re_encoded = tokenizer.encode(text, add_special_tokens=False)
+
+            if len(re_encoded) == target_length:
+                return re_encoded
+            elif len(re_encoded) < target_length:
+                # Recursively generate additional consistent tokens
+                needed = target_length - len(re_encoded)
+                extra_tokens = _generate_exact_length_tokens(needed)
+                return re_encoded + extra_tokens
+            else:
+                # Truncate to target length
+                return re_encoded[:target_length]
+
+        requests = []
+        for _ in range(num_prefixes):
+            prefix_len = np.random.randint(prefix_len_dist["min"], prefix_len_dist["max"])
+            prefix_tokens = _generate_exact_length_tokens(prefix_len)
+
+            for _ in range(prompts_per_prefix):
+                input_len = int(prefix_len * (1 + prefix_hit_rate/100)) + np.random.randint(2, 10) # small padding of tokens
+                suffix_len = input_len - prefix_len
+                suffix_tokens = _generate_exact_length_tokens(suffix_len)
+
+                combined_tokens = prefix_tokens + suffix_tokens
+                prompt = tokenizer.decode(combined_tokens)
+                prompt_len = len(combined_tokens)
+                output_len = np.random.randint(output_len_dist["min"], min(output_len_dist["max"], max_model_len - prompt_len - 10))
+
+                requests.append(
+                    SampleRequest(
+                        prompt=prompt,
+                        prompt_len=prompt_len,
+                        expected_output_len=output_len,
+                    )
+                )
+        random.shuffle(requests)
+
         return requests
