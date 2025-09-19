@@ -654,7 +654,8 @@ async def benchmark(
                 "input_len": output.prompt_len,
                 "output_len": output.output_tokens,
                 "error": output.error,
-                "e2e_latency": output.latency
+                "e2e_latency": output.latency,
+                "events": [output.event]
             })
     else:
         result = {
