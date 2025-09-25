@@ -1230,13 +1230,6 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
         "from the ShareGPT dataset.",
     )
     sharegpt_group.add_argument(
-        "--sharegpt-input-len-max",
-        type=int,
-        default=None,
-        help="Max prompt length for each request. Used to filter prompts "
-        "from the ShareGPT dataset.",
-    )
-    sharegpt_group.add_argument(
         "--sharegpt-prefix-hit-ratio",
         type=float,
         default=0.1,
