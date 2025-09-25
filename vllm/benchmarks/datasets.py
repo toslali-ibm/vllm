@@ -62,6 +62,13 @@ except ImportError:
     from argparse import ArgumentParser as FlexibleArgumentParser
 
 logger = logging.getLogger(__name__)
+unique_prompts = [
+    "You are a useful AI assistant. Your goal is to explain complex subjects in a simple and clear way. Use everyday language and relatable analogies to make difficult ideas easy to understand. Avoid jargon whenever possible, or define it clearly if you must use it. Your tone should be patient and encouraging, like a good teacher who wants to help someone learn.",
+    "You are a good AI assistant. Your main function is to help users brainstorm ideas for any project or situation. Provide a wide variety of creative and diverse suggestions. To better help the user, you can ask clarifying questions about their goals. Organize the final list of ideas with headings or bullet points to keep them clear. Your tone should be enthusiastic and open-minded to encourage creativity.",
+    "You are a friendly AI assistant. Your task is to help users break down any problem into small, manageable steps. When a user presents a challenge, your purpose is to guide them in creating a logical plan to solve it. Focus on providing a clear, step-by-step process they can follow. Your tone should be logical, calm, and supportive, helping the user feel confident they can tackle the issue.",
+    "You are a funny AI assistant. Your primary role is to read, understand, and summarize long pieces of text. When given an article, report, or any other document, your goal is to extract the main points and present them in a concise and easy-to-read format. You can use bullet points or a short paragraph for the summary. Your tone should be neutral, efficient, and informative.",
+    "You are a nice AI assistant. Your purpose is to act out different roles or simulate scenarios for the user. You should be able to adopt various personas, such as a job interviewer, a customer, or a debate partner, based on the user's request. Stay in character and respond realistically within the context of the situation. Your tone should be adaptable and convincing for whichever role you are playing."
+]
 
 # -----------------------------------------------------------------------------
 # Data Classes
@@ -1051,6 +1058,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
         output_len_min: Optional[int] = DEFAULT_OUTPUT_LEN_MIN,
         output_len_max: Optional[int] = DEFAULT_OUTPUT_LEN_MAX,
         max_model_len: int = 8192,
+        prefix_hit_ratio: float = 0.1,
         mode: str = "train",
         enable_multimodal_chat: bool = False,
         request_id_prefix: str = "",
@@ -1067,31 +1075,33 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             # Take every odd entry (starting from 1) for test
             if mode == "test" and entry_idx % 2 == 0:
                 continue
-            prompt, completion = (
+            prompt, _ = (
                 entry["conversations"][0]["value"],
                 entry["conversations"][1]["value"],
             )
 
             prompt_ids = tokenizer(prompt).input_ids
-            prompt_len = len(prompt_ids)
-            if prompt_len >= input_len_min and prompt_len <= input_len_max:
-                # Randomly generated output lengths
-                output_len = np.random.randint(output_len_min, min(output_len_max, max(max_model_len - prompt_len - 10, output_len_min+1)))
-                if not is_valid_sequence(prompt_len,
-                                        output_len,
-                                        skip_min_output_len_check=output_len
-                                        is not None):
-                    continue
-                samples.append(
-                    SampleRequest(
-                        prompt=prompt,
-                        prompt_len=prompt_len,
-                        expected_output_len=output_len,
-                        request_id=request_id_prefix + str(ind),
-                    ))
-                ind += 1
-            else:
+            random_input_len = np.random.randint(input_len_min, input_len_max)
+            prefix_len = int(prefix_hit_ratio * random_input_len)
+            prefix_group = np.random.randint(0, len(unique_prompts))
+            full_prefix_tokens = tokenizer(unique_prompts[prefix_group]).input_ids
+            prefix = tokenizer.decode(full_prefix_tokens[:prefix_len])
+            prompt = prefix + tokenizer.decode(prompt_ids[:random_input_len - prefix_len])
+            # Randomly generated output lengths
+            output_len = np.random.randint(output_len_min, min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
+            if not is_valid_sequence(random_input_len,
+                                    output_len,
+                                    skip_min_output_len_check=output_len
+                                    is not None):
                 continue
+            samples.append(
+                SampleRequest(
+                    prompt=prompt,
+                    prompt_len=random_input_len,
+                    expected_output_len=output_len,
+                    request_id=request_id_prefix + str(ind),
+                ))
+            ind += 1
         return samples
 
 
@@ -1218,6 +1228,19 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
         default=None,
         help="Max prompt length for each request. Used to filter prompts "
         "from the ShareGPT dataset.",
+    )
+    sharegpt_group.add_argument(
+        "--sharegpt-input-len-max",
+        type=int,
+        default=None,
+        help="Max prompt length for each request. Used to filter prompts "
+        "from the ShareGPT dataset.",
+    )
+    sharegpt_group.add_argument(
+        "--sharegpt-prefix-hit-ratio",
+        type=float,
+        default=0.1,
+        help="Prefix length/total input length for ShareGPT prompts"
     )
 
     blazedit_group = parser.add_argument_group("blazedit dataset options")
@@ -1637,6 +1660,7 @@ def get_samples(args, tokenizer, max_model_len = 8192, experiment_mode = "train"
                 output_len_min=args.sharegpt_output_len_min,
                 output_len_max=args.sharegpt_output_len_max,
                 request_id_prefix=args.request_id_prefix,
+                prefix_hit_ratio=args.sharegpt_prefix_hit_ratio,
                 mode=experiment_mode,
             ),
             "burstgpt": lambda: BurstGPTDataset(
