@@ -1082,7 +1082,10 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             )
 
             prompt_ids = tokenizer(prompt).input_ids
+            sharegpt_prompt_len = len(prompt_ids)
             random_input_len = np.random.randint(input_len_min, input_len_max)
+            if sharegpt_prompt_len < int(random_input_len * (1 - prefix_hit_ratio)):
+                continue
             prefix_len = int(prefix_hit_ratio * random_input_len)
             prefix_group = np.random.randint(0, len(unique_prompts))
             full_prefix_tokens = tokenizer(unique_prompts[prefix_group]).input_ids
