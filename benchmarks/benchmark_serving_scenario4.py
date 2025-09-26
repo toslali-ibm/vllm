@@ -1090,7 +1090,6 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
     # Load the dataset.
     warmstart_requests = get_warmstart_samples(args, tokenizer, DEFAULT_WARMSTART_PROMPT_COUNT)
     input_requests = get_samples(args, tokenizer, DEFAULT_MAX_MODEL_LEN, experiment_mode=args.experiment_mode)
-    print(input_requests)
     goodput_config_dict = check_goodput_args(args)
 
     # Collect the sampling parameters.
