@@ -1095,7 +1095,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             prefix = tokenizer.decode(full_prefix_tokens[:prefix_len])
             prompt = prefix + tokenizer.decode(prompt_ids[:random_input_len - prefix_len])
             # Randomly generated output lengths
-            output_len = np.random.uniform(output_len_min, min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
+            output_len = np.random.uniform(min(output_len_min, max_model_len - random_input_len - 20), min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
             if not is_valid_sequence(random_input_len,
                                     output_len,
                                     skip_min_output_len_check=output_len
