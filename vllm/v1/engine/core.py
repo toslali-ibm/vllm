@@ -776,12 +776,12 @@ class EngineCoreProc(EngineCore):
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
             # 1) Poll the input queue until there is work to do.
-            start_time = time.perf_counter()
+            start_time = time.monotonic()
             self._process_input_queue()
 
             # 2) Step the engine core and return the outputs.
             ran_model = self._process_engine_step()
-            end_time = time.perf_counter()
+            end_time = time.monotonic()
             # MERT: record loop execution time ONLY FOR WHEN THERE IS REQS. 
             loop_time = end_time - start_time
 
