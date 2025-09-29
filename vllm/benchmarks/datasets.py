@@ -1094,9 +1094,10 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             full_prefix_tokens = tokenizer(unique_prompts[prefix_group]).input_ids
             prefix = tokenizer.decode(full_prefix_tokens[:prefix_len])
             prompt = prefix + tokenizer.decode(prompt_ids[:random_input_len - prefix_len])
+            actual_prompt_len_tokens = len(tokenizer(prompt).input_ids)
             # Randomly generated output lengths
             output_len = np.random.randint(min(output_len_min, max_model_len - random_input_len - 20), min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
-            if not is_valid_sequence(prompt_len=random_input_len,
+            if not is_valid_sequence(prompt_len=actual_prompt_len_tokens,
                                     output_len=output_len,
                                     min_len=input_len_min,
                                     max_prompt_len=input_len_max,
@@ -1106,7 +1107,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             samples.append(
                 SampleRequest(
                     prompt=prompt,
-                    prompt_len=random_input_len,
+                    prompt_len=actual_prompt_len_tokens,
                     expected_output_len=output_len,
                     request_id=request_id_prefix + str(ind),
                 ))
