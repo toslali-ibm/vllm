@@ -307,22 +307,22 @@ class EngineCore:
         if not self.scheduler.has_requests():
             return {}, False
         
-        print(f"----- [Core step schedule]")
+        # print(f"----- [Core step schedule]")
         scheduler_output = self.scheduler.schedule()
-        print(f"----- [Core step schedule done]")
+        # print(f"----- [Core step schedule done]")
         ## MERT: get metrics from scheduler_output
         metrics = scheduler_output.metrics
 
-        print(f"----- [Core step execture model]")
+        # print(f"----- [Core step execture model]")
         model_output = self.execute_model_with_error_logging(
             self.model_executor.execute_model,  # type: ignore
             scheduler_output)
         
-        print(f"----- [Core step execture model done]")
+        # print(f"----- [Core step execture model done]")
         engine_core_outputs, num_finished_tokens, num_finished_reqs = self.scheduler.update_from_output(
             scheduler_output, model_output)  # type: ignore
         
-        print(f"----- [Core step update from output complete]")
+        # print(f"----- [Core step update from output complete]")
         
 
         # Populate metrics dict, keyed by step_index
@@ -787,23 +787,23 @@ class EngineCoreProc(EngineCore):
             self._process_input_queue()
 
             # 2) Step the engine core and return the outputs.
-            print(f"----- [Busy loop process engine step]")
+            # print(f"----- [Busy loop process engine step]")
             start_time = time.monotonic()
-            print(f"----- [Busy loop start, timestamp: {start_time}]")
+            # print(f"----- [Busy loop start, timestamp: {start_time}]")
             ran_model = self._process_engine_step()
             end_time = time.monotonic()
            
             # MERT: record loop execution time ONLY FOR WHEN THERE IS REQS. 
             loop_time = end_time - start_time
             
-            print(f"----- [Busy loop end, timestamp: {end_time} and start was {start_time}] and diff {loop_time}")
+            # print(f"----- [Busy loop end, timestamp: {end_time} and start was {start_time}] and diff {loop_time}")
 
             # Only record loop time if scheduler had requests
             if ran_model:
                 # last step_index = max key in VLLM_INST_METRICS
                 if VLLM_INST_METRICS:
                     last_step = max(VLLM_INST_METRICS.keys())
-                    print(f"----- [Busy loop end last step {last_step}")
+                    # print(f"----- [Busy loop end last step {last_step}")
                     VLLM_INST_METRICS[last_step]["loop_time"] = loop_time
             # self.mert_print_metrics(VLLM_INST_METRICS)
 
