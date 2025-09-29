@@ -796,7 +796,7 @@ class EngineCoreProc(EngineCore):
             # MERT: record loop execution time ONLY FOR WHEN THERE IS REQS. 
             
             loop_time = end_time - start_time
-            print(f"----- [Busy loop end, timestamp: {end_time}] and diff {loop_time}")
+            print(f"----- [Busy loop end, timestamp: {end_time} and start was {start_time}] and diff {loop_time}")
 
             # Only record loop time if scheduler had requests
             if ran_model:
