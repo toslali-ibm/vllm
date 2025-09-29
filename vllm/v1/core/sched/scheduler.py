@@ -432,6 +432,12 @@ class Scheduler(SchedulerInterface):
                     # requests, which have output tokens.
                     num_new_tokens = request.num_tokens - num_computed_tokens
 
+
+                    if (0 < self.scheduler_config.long_prefill_token_threshold
+                            < num_new_tokens):
+                        num_new_tokens = (
+                            self.scheduler_config.long_prefill_token_threshold)
+                        
                     ## MERT num_cache_miss_tokens and num_cache_hit_tokens: 
                     # num_new_tokens is cache MISS, and num_computed_tokens is CACHE HIT -- 
                     # decode - you have no CACHE MISS
@@ -441,11 +447,6 @@ class Scheduler(SchedulerInterface):
                     # Misses only during prefill
                     if request.num_computed_tokens < request.num_prompt_tokens:
                         num_cache_miss_tokens += num_new_tokens
-
-                    if (0 < self.scheduler_config.long_prefill_token_threshold
-                            < num_new_tokens):
-                        num_new_tokens = (
-                            self.scheduler_config.long_prefill_token_threshold)
 
                     # chunked prefill has to be enabled explicitly to allow
                     # pooling requests to be chunked
