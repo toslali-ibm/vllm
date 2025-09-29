@@ -480,6 +480,7 @@ async def benchmark(
             model=model_id,
             model_name=model_name,
             prompt=warmstart_prompt,
+            prefix_len=0,
             api_url=api_url,
             prompt_len=warmstart_prompt_len,
             output_len=warmstart_output_len,
