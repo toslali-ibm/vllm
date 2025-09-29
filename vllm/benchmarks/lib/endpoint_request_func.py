@@ -65,6 +65,7 @@ class RequestFuncInput:
     api_url: str
     prompt_len: int
     output_len: int
+    prefix_len: int
     model: str
     model_name: Optional[str] = None
     logprobs: Optional[int] = None
@@ -82,7 +83,8 @@ class RequestFuncOutput:
     generated_text: str = ""
     success: bool = False
     latency: float = 0.0
-    input_text: str = "" 
+    input_text: str = ""
+    prefix_len: int = 0 
     output_tokens: int = 0
     ttft: float = 0.0  # Time to first token
     itl: list[float] = field(
@@ -138,6 +140,7 @@ async def async_request_openai_completions_non_streaming(
     output = RequestFuncOutput()
     output.prompt_len = request_func_input.prompt_len
     output.input_text = request_func_input.prompt
+    output.prefix_len = request_func_input.prefix_len
 
     st = time.perf_counter()
     output.start_time = st

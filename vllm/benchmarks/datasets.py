@@ -92,6 +92,7 @@ class SampleRequest:
     multi_modal_data: Optional[
         Union[MultiModalDataDict, dict, list[dict]]
     ] = None
+    prefix_len: int = 0,
     lora_request: Optional[LoRARequest] = None
     request_id: Optional[str] = None
 
@@ -1108,6 +1109,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
                 SampleRequest(
                     prompt=prompt,
                     prompt_len=actual_prompt_len_tokens,
+                    prefix_len=prefix_len,
                     expected_output_len=output_len,
                     request_id=request_id_prefix + str(ind),
                 ))
