@@ -784,18 +784,18 @@ class EngineCoreProc(EngineCore):
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
             # 1) Poll the input queue until there is work to do.
-            start_time = time.monotonic()
-            print(f"----- [Busy loop start, timestamp: {start_time}]")
             self._process_input_queue()
 
             # 2) Step the engine core and return the outputs.
             print(f"----- [Busy loop process engine step]")
+            start_time = time.monotonic()
+            print(f"----- [Busy loop start, timestamp: {start_time}]")
             ran_model = self._process_engine_step()
             end_time = time.monotonic()
            
             # MERT: record loop execution time ONLY FOR WHEN THERE IS REQS. 
-            
             loop_time = end_time - start_time
+            
             print(f"----- [Busy loop end, timestamp: {end_time} and start was {start_time}] and diff {loop_time}")
 
             # Only record loop time if scheduler had requests
