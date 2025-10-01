@@ -394,12 +394,18 @@ class Scheduler(SchedulerInterface):
                 num_external_computed_tokens = 0
                 load_kv_async = False
 
+
+                # MERT: 
                 # Get already-cached tokens.
                 if request.num_computed_tokens == 0:
                     # Get locally-cached tokens.
                     new_computed_blocks, num_new_local_computed_tokens = \
                         self.kv_cache_manager.get_computed_blocks(
                             request)
+                    
+                    if self.log_stats:
+                        request.record_event(EngineCoreEventType.PREFIX,
+                                            None, num_new_local_computed_tokens)
 
                     # Get externally-cached tokens if using a KVConnector.
                     if self.connector is not None:
