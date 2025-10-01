@@ -401,6 +401,7 @@ class EngineCore:
 
     def shutdown(self):
         # MERT: record/flush all data upon shutdown
+        print("---- Shutting down vLLM - flush last metrics")
         last_step = max(VLLM_INST_METRICS.keys())
         flush_metrics(VLLM_INST_METRICS, last_step)
         self.structured_output_manager.clear_backend()
