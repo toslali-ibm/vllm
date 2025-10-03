@@ -1160,7 +1160,9 @@ class ShareGPTRandomDataset(BenchmarkDataset):
 
             rand_num2 = random.randint(0, 100)
             final_prompt = prefix + str(rand_num2) + merged_text
-            actual_prompt_len_tokens = len(tokenizer(final_prompt).input_ids)
+            final_prompt_tokens = tokenizer(final_prompt).input_ids[:random_input_len]
+            final_prompt = tokenizer.decode(final_prompt_tokens)
+            actual_prompt_len_tokens = len(final_prompt_tokens)
             output_len = np.random.randint(min(output_len_min, max_model_len - random_input_len - 20), min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
             if not is_valid_sequence(prompt_len=actual_prompt_len_tokens,
                                     output_len=output_len,
