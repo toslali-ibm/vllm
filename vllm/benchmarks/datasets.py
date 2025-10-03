@@ -1150,6 +1150,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
                 rand_num = random.randint(0, 100)
                 merged_text += prompt + (" " + str(rand_num) + " ")
                 merged_text = tokenizer.decode(tokenizer(merged_text).input_ids[:target_len]) # truncate to target len
+                print(f"prompt_{idx}: {len(tokenizer(merged_text).input_ids)}")
 
             rand_num2 = random.randint(0, 100)
             final_prompt = prefix + str(rand_num2) + merged_text
