@@ -1163,7 +1163,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
                                     max_prompt_len=input_len_max,
                                     max_total_len=max_model_len,
                                     skip_min_output_len_check=output_len is not None):
-                print(f"Invalid seq of length {actual_prompt_len_tokens} output length {output_len}, index = {idx}")
+                print(f"Invalid seq of length {actual_prompt_len_tokens} output length {output_len}, index = {idx} target_len = {target_len} prefix_len={prefix_len}")
                 continue
             samples.append(
                 SampleRequest(
