@@ -1147,12 +1147,12 @@ class ShareGPTRandomDataset(BenchmarkDataset):
                 else: # only odd indices
                     prompt_idx = random.randrange(1, len(self.data), 2)
                 prompt = self.data[prompt_idx]["conversations"][0]["value"]
-                rand_num_0 = random.randint(0, 100)
-                rand_num_1 = random.randint(0, 100)
-                merged_text += prompt + (" " + str(rand_num_0) + " " + str(rand_num_1) + " ")
+                rand_num = random.randint(0, 100)
+                merged_text += prompt + (" " + str(rand_num) + " ")
                 merged_text = tokenizer.decode(tokenizer(merged_text).input_ids[:target_len]) # truncate to target len
 
-            final_prompt = prefix + merged_text
+            rand_num2 = random.randint(0, 100)
+            final_prompt = prefix + str(rand_num2) + merged_text
             actual_prompt_len_tokens = len(tokenizer(final_prompt).input_ids)
             output_len = np.random.randint(min(output_len_min, max_model_len - random_input_len - 20), min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
             if not is_valid_sequence(prompt_len=actual_prompt_len_tokens,
