@@ -409,7 +409,7 @@ class RandomDataset(BenchmarkDataset):
         self._rng = np.random.default_rng(self.random_seed)
         self.unique_prompts = []
         for idx in range(1, 6):
-            prefix_file_path = f"prefix_prompt{idx}.txt"
+            prefix_file_path = f"/mnt/data/prefix_prompt{idx}.txt"
             with open(prefix_file_path, 'r') as f:
                 data = f.read()
                 self.unique_prompts.append(data)
@@ -1095,7 +1095,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
         self.load_data()
         self.unique_prompts = []
         for idx in range(1, 6):
-            prefix_file_path = f"prefix_prompt{idx}.txt"
+            prefix_file_path = f"/mnt/data/prefix_prompt{idx}.txt"
             with open(prefix_file_path, 'r') as f:
                 data = f.read()
                 self.unique_prompts.append(data)
