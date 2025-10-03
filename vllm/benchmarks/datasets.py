@@ -271,7 +271,8 @@ class BenchmarkDataset(ABC):
 def is_valid_sequence(
     prompt_len: int,
     output_len: int,
-    min_len: int = 4,
+    min_prompt_len: int = 4,
+    min_output_len: int = 1,
     max_prompt_len: int = 1024,
     max_total_len: int = 2048,
     skip_min_output_len_check: bool = False,
@@ -284,9 +285,9 @@ def is_valid_sequence(
     from `sample_requests` in benchmark_throughput.py.
     """
     # Check for invalid conditions
-    prompt_too_short = prompt_len < min_len
+    prompt_too_short = prompt_len < min_prompt_len
     output_too_short = (not skip_min_output_len_check) and (output_len
-                                                            < min_len)
+                                                            < min_output_len)
     prompt_too_long = prompt_len > max_prompt_len
     combined_too_long = (prompt_len + output_len) > max_total_len
 
@@ -1086,8 +1087,9 @@ class ShareGPTRandomDataset(BenchmarkDataset):
                 else: # only odd indices
                     prompt_idx = random.randrange(1, len(self.data), 2)
                 prompt = self.data[prompt_idx]["conversations"][0]["value"]
-                rand_num = random.randint(0, 100)
-                merged_text += prompt + " " + str(rand_num) + " "
+                rand_num_0 = random.randint(0, 100)
+                rand_num_1 = random.randint(0, 100)
+                merged_text += prompt + (" " + str(rand_num_0) + " " + str(rand_num_1) + " ")
                 merged_text = tokenizer.decode(tokenizer(merged_text).input_ids[:target_len]) # truncate to target len
 
             final_prompt = prefix + merged_text
@@ -1095,7 +1097,8 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             output_len = np.random.randint(min(output_len_min, max_model_len - random_input_len - 20), min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
             if not is_valid_sequence(prompt_len=actual_prompt_len_tokens,
                                     output_len=output_len,
-                                    min_len=input_len_min,
+                                    min_prompt_len=input_len_min,
+                                    min_output_len=output_len_min,
                                     max_prompt_len=input_len_max,
                                     max_total_len=max_model_len,
                                     skip_min_output_len_check=output_len is not None):
