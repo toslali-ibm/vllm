@@ -499,7 +499,7 @@ class RandomDataset(BenchmarkDataset):
         if not (0.0 <= range_ratio < 1.0):
             raise ValueError("range_ratio must be in [0, 1).")
         num_special_tokens = int(tokenizer.num_special_tokens_to_add())
-        real_input_len = max(0, int(input_len) - num_special_tokens)
+        real_input_len = max(0, int(input_len) - num_special_tokens) 
         # Bounds use floor for low and ceil for high
         input_low = math.floor(real_input_len * (1 - range_ratio))
         input_high = math.ceil(real_input_len * (1 + range_ratio))
@@ -1071,32 +1071,27 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             np.random.seed(self.random_seed + 1)
         else:
             np.random.seed(self.random_seed)
-        for entry_idx, entry in enumerate(self.data):
-            if len(samples) >= num_requests:
-                break
-            # Take every even entry (starting from 0) for train
-            if mode == "train" and entry_idx % 2 == 1:
-                continue
-            # Take every odd entry (starting from 1) for test
-            if mode == "test" and entry_idx % 2 == 0:
-                continue
-            prompt, _ = (
-                entry["conversations"][0]["value"],
-                entry["conversations"][1]["value"],
-            )
 
-            prompt_ids = tokenizer(prompt).input_ids
-            sharegpt_prompt_len = len(prompt_ids)
+        for idx in range(num_requests):
             random_input_len = np.random.randint(input_len_min, input_len_max)
-            if sharegpt_prompt_len < int(random_input_len * (1 - prefix_hit_ratio)):
-                continue
             prefix_len = int(prefix_hit_ratio * random_input_len)
             prefix_group = np.random.randint(0, len(unique_prompts))
             full_prefix_tokens = tokenizer(unique_prompts[prefix_group]).input_ids
             prefix = tokenizer.decode(full_prefix_tokens[:prefix_len])
-            prompt = prefix + tokenizer.decode(prompt_ids[:random_input_len - prefix_len])
-            actual_prompt_len_tokens = len(tokenizer(prompt).input_ids)
-            # Randomly generated output lengths
+            target_len = random_input_len - prefix_len
+            merged_text = ""
+            while len(tokenizer(merged_text).input_ids) < target_len:
+                if mode == "train": # only even indices
+                    prompt_idx = random.randrange(0, len(self.data), 2)
+                else: # only odd indices
+                    prompt_idx = random.randrange(1, len(self.data), 2)
+                prompt = self.data[prompt_idx]["conversations"][0]["value"]
+                rand_num = random.randint(0, 100)
+                merged_text += prompt + " " + str(rand_num) + " "
+                merged_text = tokenizer.decode(tokenizer(merged_text).input_ids[:target_len]) # truncate to target len
+
+            final_prompt = prefix + merged_text
+            actual_prompt_len_tokens = len(tokenizer(final_prompt).input_ids)
             output_len = np.random.randint(min(output_len_min, max_model_len - random_input_len - 20), min(output_len_max, max(max_model_len - random_input_len - 10, output_len_min+1)))
             if not is_valid_sequence(prompt_len=actual_prompt_len_tokens,
                                     output_len=output_len,
@@ -1107,7 +1102,7 @@ class ShareGPTRandomDataset(BenchmarkDataset):
                 continue
             samples.append(
                 SampleRequest(
-                    prompt=prompt,
+                    prompt=final_prompt,
                     prompt_len=actual_prompt_len_tokens,
                     prefix_len=prefix_len,
                     expected_output_len=output_len,
