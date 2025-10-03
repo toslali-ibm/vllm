@@ -471,6 +471,66 @@ class RandomDataset(BenchmarkDataset):
                 )
             requests = batch_requests
         return requests
+    
+    def sample_with_prefix(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        num_requests: int,
+        request_id_prefix: str = "",
+        prefix_len: int = DEFAULT_PREFIX_LEN,
+        range_ratio: float = DEFAULT_RANGE_RATIO,
+        input_len: int = DEFAULT_INPUT_LEN,
+        output_len: int = DEFAULT_OUTPUT_LEN,
+        batchsize: int = 1,
+        **kwargs,
+    ) -> list[SampleRequest]:
+
+        input_lens, output_lens, offsets = self.get_sampling_params(
+            num_requests, range_ratio, input_len, output_len, tokenizer
+        )
+
+        # Generate prefix once
+        prefix_token_ids = self.get_prefix(tokenizer, prefix_len)
+        vocab_size = tokenizer.vocab_size
+
+        requests = []
+        for i in range(num_requests):
+            prefix = unique_prompts[i % len(unique_prompts)]
+            prompt, total_input_len = self.generate_token_sequence(
+                tokenizer=tokenizer,
+                prefix_token_ids=prefix_token_ids,
+                prefix_len=prefix_len,
+                vocab_size=vocab_size,
+                input_len=int(input_lens[i]),
+                offset=int(offsets[i]),
+                index=i,
+            )
+            prompt = prefix + prompt
+            total_input_len = len(tokenizer(prompt).input_ids)
+            requests.append(
+                SampleRequest(
+                    prompt=prompt,
+                    prompt_len=total_input_len,
+                    expected_output_len=int(output_lens[i]),
+                    request_id=request_id_prefix + str(i),
+                )
+            )
+        # only used for embeddings benchmark.
+        if batchsize > 1:
+            batch_requests = []
+            # Create batched requests
+            for i in range(0, num_requests, batchsize):
+                batch = requests[i : i + batchsize]
+                batch_requests.append(
+                    SampleRequest(
+                        prompt=[req.prompt for req in batch],
+                        prompt_len=sum(req.prompt_len for req in batch),
+                        expected_output_len=0,
+                        request_id=request_id_prefix + str(i // batchsize),
+                    )
+                )
+            requests = batch_requests
+        return requests
 
     def get_prefix(
         self, tokenizer: PreTrainedTokenizerBase, prefix_len: int
@@ -1490,7 +1550,7 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
 def get_warmstart_samples(args, tokenizer, warmstart_num_prompts = 50) -> list[SampleRequest]:
     dataset = RandomDataset(random_seed=args.seed, dataset_path=args.dataset_path)
     
-    warmstart_requests = dataset.sample(
+    warmstart_requests = dataset.sample_with_prefix(
         num_requests=warmstart_num_prompts,
         tokenizer=tokenizer,
     )
