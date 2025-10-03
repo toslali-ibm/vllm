@@ -1139,9 +1139,9 @@ class ShareGPTRandomDataset(BenchmarkDataset):
             prefix_group = np.random.randint(0, len(unique_prompts))
             full_prefix_tokens = tokenizer(unique_prompts[prefix_group]).input_ids
             prefix = tokenizer.decode(full_prefix_tokens[:prefix_len])
-            target_len = random_input_len - prefix_len
+            target_len = random_input_len - prefix_len - 2
             merged_text = ""
-            while len(tokenizer(merged_text).input_ids) <= target_len:
+            while len(tokenizer(merged_text).input_ids) < target_len:
                 if mode == "train": # only even indices
                     prompt_idx = random.randrange(0, len(self.data), 2)
                 else: # only odd indices
