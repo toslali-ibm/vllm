@@ -265,7 +265,7 @@ class Scheduler(SchedulerInterface):
                     request,
                     num_new_tokens,
                     num_lookahead_tokens=self.num_lookahead_tokens)
-                if new_blocks is None:
+                if new_blocks is None or self.STEP % 2 == 0:
                     # The request cannot be scheduled.
                     # Preempt the lowest-priority request.
                     if self.policy == SchedulingPolicy.PRIORITY:
