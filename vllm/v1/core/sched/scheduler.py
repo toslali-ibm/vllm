@@ -220,9 +220,7 @@ class Scheduler(SchedulerInterface):
                               request.num_output_placeholders -
                               request.num_computed_tokens)
             
-            # MERT num_decode_reqs: if num_new_tokens == 1 and num_computed_tokens > num_prompt_tokens, then this is decode request 
-            if num_new_tokens == 1 and request.num_computed_tokens >= request.num_prompt_tokens: 
-                num_decode_reqs = num_decode_reqs + 1
+
 
             if (0 < self.scheduler_config.long_prefill_token_threshold <
                     num_new_tokens):
@@ -302,6 +300,10 @@ class Scheduler(SchedulerInterface):
             if not can_schedule:
                 break
             assert new_blocks is not None
+
+            # MERT num_decode_reqs: if num_new_tokens == 1 and num_computed_tokens > num_prompt_tokens, then this is decode request 
+            if num_new_tokens == 1 and request.num_computed_tokens >= request.num_prompt_tokens: 
+                num_decode_reqs = num_decode_reqs + 1
 
             # MERT: Cache accounting for running requests
             num_cache_hit_tokens += request.num_computed_tokens
@@ -443,16 +445,6 @@ class Scheduler(SchedulerInterface):
                             < num_new_tokens):
                         num_new_tokens = (
                             self.scheduler_config.long_prefill_token_threshold)
-                        
-                    ## MERT num_cache_miss_tokens and num_cache_hit_tokens: 
-                    # num_new_tokens is cache MISS, and num_computed_tokens is CACHE HIT -- 
-                    # decode - you have no CACHE MISS
-                    # Always count hits
-                    num_cache_hit_tokens += request.num_computed_tokens
-
-                    # Misses only during prefill
-                    if request.num_computed_tokens < request.num_prompt_tokens:
-                        num_cache_miss_tokens += num_new_tokens
 
                     # chunked prefill has to be enabled explicitly to allow
                     # pooling requests to be chunked
@@ -463,6 +455,16 @@ class Scheduler(SchedulerInterface):
                         continue
 
                     num_new_tokens = min(num_new_tokens, token_budget)
+
+                    ## MERT num_cache_miss_tokens and num_cache_hit_tokens: 
+                    # num_new_tokens is cache MISS, and num_computed_tokens is CACHE HIT -- 
+                    # decode - you have no CACHE MISS
+                    # Always count hits
+                    num_cache_hit_tokens += request.num_computed_tokens
+
+                    # Misses only during prefill
+                    if request.num_computed_tokens < request.num_prompt_tokens:
+                        num_cache_miss_tokens += num_new_tokens
                     assert num_new_tokens > 0
 
                     # Schedule encoder inputs.
