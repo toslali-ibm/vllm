@@ -1515,8 +1515,8 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
     )
     prefix_repetition_group.add_argument(
         "--prefix-repetition-prefix-hit-rate",
-        type=int,
-        default=10,
+        type=float,
+        default=0.1,
         help="% prefix hits",
     )
 
