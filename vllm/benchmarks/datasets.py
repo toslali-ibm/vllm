@@ -2879,6 +2879,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
         prefix_hit_rate: int = DEFAULT_PREFIX_HIT_RATE,
         num_prefixes: int = DEFAULT_NUM_PREFIXES,
         max_model_len: int = DEFAULT_MAX_MODEL_LEN,
+        request_id_prefix: str = "",
         **kwargs,
     ) -> list[SampleRequest]:
         vocab_size = tokenizer.vocab_size
@@ -2902,7 +2903,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
             prefix_tokens = _generate_exact_length_tokens(100000)
             all_prefixes.append(prefix_tokens)
 
-        for _ in range(num_requests):
+        for ind in range(num_requests):
             input_len = int(np.random.normal(loc=input_len_mean, scale=input_len_mean/10))
             prefix_len = int(prefix_hit_rate * input_len)
             prefix_idx = np.random.randint(0, len(all_prefixes))
@@ -2913,16 +2914,15 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
             combined_tokens = prefix_tokens + suffix_tokens
             prompt = tokenizer.decode(combined_tokens)
             prompt_len = len(combined_tokens)
-            output_len = min(int(np.random.normal(loc=output_len_mean, scale=output_len_mean/10)), max_model_len - input_len - 10)
-            output_tokens = tokenizer.decode(_generate_exact_length_tokens(output_len))
+            output_len = max(min(int(np.random.normal(loc=output_len_mean, scale=output_len_mean/10)), max_model_len - input_len - 10), 1)
 
             requests.append(
                 SampleRequest(
                     prompt=prompt,
                     prompt_len=prompt_len,
                     prefix_len=prefix_len,
-                    output=output_tokens,
-                    output_len=output_len
+                    expected_output_len=output_len,
+                    request_id=request_id_prefix + str(ind),
                 )
             )
         np.random.shuffle(requests)
