@@ -2860,7 +2860,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
     DEFAULT_PREFIX_HIT_RATE = 10
     DEFAULT_INPUT_LEN_MEAN = 512
     DEFAULT_OUTPUT_LEN_MEAN = 200
-    DEFAULT_MAX_MODEL_LEN = 8192
+    DEFAULT_MAX_MODEL_LEN = 6000
 
     def __init__(
         self,
@@ -2904,7 +2904,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
             all_prefixes.append(prefix_tokens)
 
         for ind in range(num_requests):
-            input_len = int(np.random.normal(loc=input_len_mean, scale=input_len_mean/10))
+            input_len = min(int(np.random.normal(loc=input_len_mean, scale=input_len_mean/10)), max_model_len)
             prefix_len = int(prefix_hit_rate * input_len)
             prefix_idx = np.random.randint(0, len(all_prefixes))
             prefix_tokens = all_prefixes[prefix_idx][:prefix_len]
