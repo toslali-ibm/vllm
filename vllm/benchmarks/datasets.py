@@ -1530,7 +1530,7 @@ def get_warmstart_samples(args, tokenizer, warmstart_num_prompts = 50) -> list[S
 
     return warmstart_requests
 
-def get_samples(args, tokenizer, max_model_len = 8192, experiment_mode = "train") -> list[SampleRequest]:
+def get_samples(args, tokenizer, max_model_len = 6000, experiment_mode = "train") -> list[SampleRequest]:
 
     if not hasattr(args, "request_id_prefix"):
         args.request_id_prefix = ""
