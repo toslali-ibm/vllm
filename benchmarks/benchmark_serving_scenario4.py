@@ -49,6 +49,7 @@ from vllm.benchmarks.lib.utils import (convert_to_pytorch_benchmark_format,
 from vllm.transformers_utils.tokenizer import get_tokenizer
 
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
+DEFAULT_WARMSTART_PROMPT_COUNT = 20
 
 TERM_PLOTLIB_AVAILABLE = ((importlib.util.find_spec("termplotlib") is not None)
                           and (shutil.which("gnuplot") is not None))
@@ -1094,7 +1095,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
 
     # Load the dataset.
     warmstart_requests = get_warmstart_samples(args, tokenizer, DEFAULT_WARMSTART_PROMPT_COUNT)
-    input_requests = get_samples(args, tokenizer, DEFAULT_MAX_MODEL_LEN, experiment_mode=args.experiment_mode)
+    input_requests = get_samples(args, tokenizer, experiment_mode=args.experiment_mode) # take MAX_MODEL_LEN as arg
     print("Input requests count: ", len(input_requests))
     goodput_config_dict = check_goodput_args(args)
 
