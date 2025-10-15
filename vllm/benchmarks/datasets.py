@@ -1765,7 +1765,7 @@ def get_samples(args, tokenizer, experiment_mode = "train") -> list[SampleReques
                 input_len_mean=args.prefix_repetition_input_len_mean,
                 output_len_mean=args.prefix_repetition_output_len_mean,
                 num_prefixes=args.prefix_repetition_num_prefixes,
-                max_model_len=args.max_model_len
+                max_model_len=args.prefix_repetition_max_model_len
                 ),
         }
 
