@@ -38,7 +38,6 @@ from transformers import PreTrainedTokenizerBase
 
 from vllm.benchmarks.datasets import (SampleRequest, add_dataset_parser,
                                       get_samples, get_warmstart_samples)
-from vllm.benchmarks.constants import *
 from vllm.utils import FlexibleArgumentParser
 from vllm.benchmarks.lib.endpoint_request_func import (
     ASYNC_REQUEST_FUNCS, OPENAI_COMPATIBLE_BACKENDS, RequestFuncInput,

@@ -38,7 +38,6 @@ from vllm.multimodal import MultiModalDataDict
 from vllm.multimodal.image import convert_image_mode
 from vllm.transformers_utils.tokenizer import AnyTokenizer, get_lora_tokenizer
 from vllm.utils import PlaceholderModule
-from vllm.benchmarks.constants import *
 
 try:
     from datasets import load_dataset
