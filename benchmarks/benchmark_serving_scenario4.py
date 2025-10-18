@@ -40,8 +40,8 @@ from vllm.benchmarks.datasets import (SampleRequest, add_dataset_parser,
                                       get_samples, get_warmstart_samples)
 from vllm.utils import FlexibleArgumentParser
 from vllm.benchmarks.lib.endpoint_request_func import (
-    ASYNC_REQUEST_FUNCS, OPENAI_COMPATIBLE_BACKENDS, RequestFuncInput,
-    RequestFuncOutput)
+    ASYNC_REQUEST_FUNCS, OPENAI_COMPATIBLE_BACKENDS, NON_STREAMING_FUNCS, 
+    RequestFuncInput, RequestFuncOutput)
 from vllm.benchmarks.lib.ready_checker import wait_for_endpoint
 from vllm.benchmarks.lib.utils import (convert_to_pytorch_benchmark_format,
                                        write_to_json)
@@ -57,8 +57,6 @@ TERM_PLOTLIB_AVAILABLE = ((importlib.util.find_spec("termplotlib") is not None)
 
 class TaskType(Enum):
     GENERATION = "generation"
-    EMBEDDING = "embedding"
-
 
 @dataclass
 class BenchmarkMetrics:
@@ -202,48 +200,6 @@ async def get_request(
                 await asyncio.sleep(sleep_interval_s)
         yield request, request_rates[request_index]
 
-
-def calculate_metrics_for_embeddings(
-        outputs: list[RequestFuncOutput], dur_s: float,
-        selected_percentiles: list[float]) -> EmbedBenchmarkMetrics:
-    """Calculate the metrics for the embedding requests.
-
-    Args:
-        outputs: The outputs of the requests.
-        dur_s: The duration of the benchmark.
-        selected_percentiles: The percentiles to select.
-
-    Returns:
-        The calculated benchmark metrics.
-    """
-    total_input = 0
-    completed = 0
-    e2els: list[float] = []
-    for i in range(len(outputs)):
-        if outputs[i].success:
-            e2els.append(outputs[i].latency)
-            completed += 1
-            total_input += outputs[i].prompt_len
-
-    if completed == 0:
-        warnings.warn(
-            "All requests failed. This is likely due to a misconfiguration "
-            "on the benchmark arguments.",
-            stacklevel=2)
-    metrics = EmbedBenchmarkMetrics(
-        completed=completed,
-        total_input=total_input,
-        request_throughput=completed / dur_s,
-        total_token_throughput=total_input / dur_s,
-        mean_e2el_ms=np.mean(e2els or 0) * 1000,
-        std_e2el_ms=np.std(e2els or 0) * 1000,
-        median_e2el_ms=np.median(e2els or 0) * 1000,
-        percentiles_e2el_ms=[(p, np.percentile(e2els or 0, p) * 1000)
-                             for p in selected_percentiles],
-    )
-    return metrics
-
-
 def calculate_metrics(
     input_requests: list[SampleRequest],
     outputs: list[RequestFuncOutput],
@@ -269,10 +225,6 @@ def calculate_metrics(
     total_input = 0
     completed = 0
     good_completed = 0
-    itls: list[float] = []
-    tpots: list[float] = []
-    all_tpots: list[float] = []
-    ttfts: list[float] = []
     e2els: list[float] = []
     for i in range(len(outputs)):
         if outputs[i].success:
@@ -289,15 +241,6 @@ def calculate_metrics(
                               add_special_tokens=False).input_ids)
             actual_output_lens.append(output_len)
             total_input += input_requests[i].prompt_len
-            tpot = 0
-            if output_len > 1:
-                latency_minus_ttft = outputs[i].latency - outputs[i].ttft
-                tpot = latency_minus_ttft / (output_len - 1)
-                tpots.append(tpot)
-            # Note: if output_len <= 1, we regard tpot as 0 for goodput
-            all_tpots.append(tpot)
-            itls += outputs[i].itl
-            ttfts.append(outputs[i].ttft)
             e2els.append(outputs[i].latency)
             completed += 1
         else:
@@ -306,19 +249,6 @@ def calculate_metrics(
     if goodput_config_dict:
         valid_metrics = []
         slo_values = []
-
-        if "ttft" in goodput_config_dict:
-            valid_metrics.append(ttfts)
-            slo_values.append(goodput_config_dict["ttft"] /
-                              MILLISECONDS_TO_SECONDS_CONVERSION)
-        if "tpot" in goodput_config_dict:
-            valid_metrics.append(all_tpots)
-            slo_values.append(goodput_config_dict["tpot"] /
-                              MILLISECONDS_TO_SECONDS_CONVERSION)
-        if "e2el" in goodput_config_dict:
-            valid_metrics.append(e2els)
-            slo_values.append(goodput_config_dict["e2el"] /
-                              MILLISECONDS_TO_SECONDS_CONVERSION)
 
         for req_metric in zip(*valid_metrics):
             is_good_req = all([s >= r for s, r in zip(slo_values, req_metric)])
@@ -349,20 +279,6 @@ def calculate_metrics(
         concurrent_requests_per_second = np.zeros(duration_seconds)
 
         for i, output in enumerate(successful_outputs):
-            # Calculate token generation timestamp using
-            # start_time, ttft, and itl
-            token_times = [output.start_time + output.ttft]
-            current_time = token_times[0]
-            for itl_value in output.itl:
-                current_time += itl_value
-                token_times.append(current_time)
-
-            # Add tokens to second buckets
-            for token_time in token_times:
-                second_bucket = int(token_time - min_start_time)
-                if 0 <= second_bucket < duration_seconds:
-                    tokens_per_second[second_bucket] += 1
-
             # Track concurrent requests for each second this request was active
             request_start_second = int(output.start_time - min_start_time)
             request_end_second = int((output.start_time + output.latency) -
@@ -413,6 +329,7 @@ def calculate_metrics(
 
 async def benchmark(
     endpoint_type: str,
+    streaming: bool,
     api_url: str,
     base_url: str,
     model_id: str,
@@ -438,13 +355,11 @@ async def benchmark(
     ramp_up_end_rps: Optional[int] = None,
     ready_check_timeout_sec: int = 600,
 ):
-    task_type = (TaskType.EMBEDDING if api_url.endswith("/v1/embeddings") else
-                 TaskType.GENERATION)
-    if endpoint_type in ASYNC_REQUEST_FUNCS:
-        if task_type == TaskType.EMBEDDING:
-            request_func = ASYNC_REQUEST_FUNCS["openai-embeddings"]
-        else:
-            request_func = ASYNC_REQUEST_FUNCS[endpoint_type]
+    task_type = (TaskType.GENERATION)
+    if not streaming:
+        request_func = NON_STREAMING_FUNCS[endpoint_type]
+    elif endpoint_type in ASYNC_REQUEST_FUNCS:
+        request_func = ASYNC_REQUEST_FUNCS[endpoint_type]
     else:
         raise ValueError(f"Unknown backend: {endpoint_type}")
 
@@ -678,11 +593,11 @@ async def benchmark(
         result["rps_change_events"] = rps_change_events
 
     def process_one_metric(
-        # E.g., "ttft"
+        # E.g., "e2el"
         metric_attribute_name: str,
-        # E.g., "TTFT"
+        # E.g., "E2EL"
         metric_name: str,
-        # E.g., "Time to First Token"
+        # E.g., "End-to-end Latency"
         metric_header: str,
     ):
         # This function prints and adds statistics of the specified
@@ -712,22 +627,6 @@ async def benchmark(
     process_one_metric("e2el", "E2EL", "End-to-end Latency")
 
     print("=" * 50)
-
-    if profile:
-        print("Stopping profiler...")
-        profile_input = RequestFuncInput(
-            model=model_id,
-            prompt=test_prompt,
-            api_url=base_url + "/stop_profile",
-            prompt_len=test_prompt_len,
-            output_len=test_output_len,
-            logprobs=logprobs,
-        )
-        profile_output = await request_func(request_func_input=profile_input,
-                                            session=session)
-        if profile_output.success:
-            print("Profiler stopped")
-
     await session.close()
     return result
 
@@ -735,7 +634,7 @@ async def benchmark(
 def check_goodput_args(args):
     # Check and parse goodput arguments
     goodput_config_dict = {}
-    VALID_NAMES = ["ttft", "tpot", "e2el"]
+    VALID_NAMES = ["e2el"]
     if args.goodput:
         goodput_config_dict = parse_goodput(args.goodput)
         for slo_name, slo_val in goodput_config_dict.items():
@@ -766,32 +665,6 @@ def parse_goodput(slo_pairs):
             "number in milliseconds.") from err
     return goodput_config_dict
 
-
-def save_to_pytorch_benchmark_format(args: argparse.Namespace,
-                                     results: dict[str, Any],
-                                     file_name: str) -> None:
-    metrics = [
-        "median_ttft_ms", "mean_ttft_ms", "std_ttft_ms", "p99_ttft_ms",
-        "mean_tpot_ms", "median_tpot_ms", "std_tpot_ms", "p99_tpot_ms",
-        "median_itl_ms", "mean_itl_ms", "std_itl_ms", "p99_itl_ms"
-    ]
-    # These raw data might be useful, but they are rather big. They can be added
-    # later if needed
-    ignored_metrics = ["ttfts", "itls", "generated_texts", "errors"]
-    pt_records = convert_to_pytorch_benchmark_format(
-        args=args,
-        metrics={k: [results[k]]
-                 for k in metrics if k in results},
-        extra_info={
-            k: results[k]
-            for k in results if k not in metrics and k not in ignored_metrics
-        })
-    if pt_records:
-        # Don't use json suffix here as we don't want CI to pick it up
-        pt_file = f"{os.path.splitext(file_name)[0]}.pytorch.json"
-        write_to_json(pt_file, pt_records)
-
-
 def add_cli_args(parser: argparse.ArgumentParser):
     add_dataset_parser(parser)
     parser.add_argument(
@@ -807,6 +680,12 @@ def add_cli_args(parser: argparse.ArgumentParser):
         default="openai",
         choices=list(ASYNC_REQUEST_FUNCS.keys()),
         help="The type of backend or endpoint to use for the benchmark."
+    )
+    parser.add_argument(
+        "--streaming",
+        type=str,
+        action="store_true",
+        help="Whether to enable/disable request streaming for the benchmark."
     )
     parser.add_argument(
         "--base-url",
@@ -921,7 +800,7 @@ def add_cli_args(parser: argparse.ArgumentParser):
         "--save-detailed",
         action="store_true",
         help="When saving the results, whether to include per request "
-        "information such as response, error, ttfs, tpots, etc.",
+        "information such as response, error, etc.",
     )
     parser.add_argument(
         "--append-result",
@@ -963,7 +842,7 @@ def add_cli_args(parser: argparse.ArgumentParser):
         default="e2el",
         help="Comma-separated list of selected metrics to report percentils. "
         "This argument specifies the metrics to report percentiles. "
-        "Allowed metric names are \"ttft\", \"tpot\", \"itl\", \"e2el\". ")
+        "Allowed metric names are \"e2el\". ")
     parser.add_argument(
         "--metric-percentiles",
         type=str,
@@ -981,7 +860,7 @@ def add_cli_args(parser: argparse.ArgumentParser):
         "pairs, where the key is a metric name, and the value is in "
         "milliseconds. Multiple \"KEY:VALUE\" pairs can be provided, "
         "separated by spaces. Allowed request level metric names are "
-        "\"ttft\", \"tpot\", \"e2el\". For more context on the definition of "
+        "\"e2el\". For more context on the definition of "
         "goodput, refer to DistServe paper: https://arxiv.org/pdf/2401.09670 "
         "and the blog: https://hao-ai-lab.github.io/blogs/distserve",
     )
@@ -1123,6 +1002,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
 
     benchmark_result = await benchmark(
         endpoint_type=args.backend,
+        streaming=args.streaming,
         api_url=api_url,
         base_url=base_url,
         model_id=model_id,
@@ -1203,7 +1083,6 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
             if args.append_result and outfile.tell() != 0:
                 outfile.write("\n")
             json.dump(result_json, outfile)
-        save_to_pytorch_benchmark_format(args, result_json, file_name)
 
     return result_json
 

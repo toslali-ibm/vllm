@@ -69,6 +69,7 @@ class RequestFuncInput:
     model: str
     model_name: Optional[str] = None
     logprobs: Optional[int] = None
+    extra_headers: Optional[dict] = None
     extra_body: Optional[dict] = None
     multi_modal_content: Optional[Union[dict, list[dict]]] = None
     ignore_eos: bool = False
@@ -131,6 +132,8 @@ async def async_request_openai_completions_non_streaming(
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -208,6 +211,8 @@ async def async_request_openai_completions(
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -216,6 +221,7 @@ async def async_request_openai_completions(
 
     generated_text = ""
     st = time.perf_counter()
+    output.start_time = st
     most_recent_timestamp = st
     try:
         async with session.post(url=api_url, json=payload,
@@ -337,6 +343,8 @@ async def async_request_openai_chat_completions(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -346,6 +354,7 @@ async def async_request_openai_chat_completions(
     generated_text = ""
     ttft = 0.0
     st = time.perf_counter()
+    output.start_time = st
     most_recent_timestamp = st
     try:
         async with session.post(url=api_url, json=payload,
@@ -443,6 +452,8 @@ async def async_request_openai_audio(
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
     }
+    if request_func_input.extra_headers:
+        headers |= request_func_input.extra_headers
     if request_func_input.request_id:
         headers["x-request-id"] = request_func_input.request_id
 
@@ -468,6 +479,7 @@ async def async_request_openai_audio(
         generated_text = ""
         ttft = 0.0
         st = time.perf_counter()
+        output.start_time = st
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url,
@@ -547,6 +559,7 @@ async def async_request_openai_embeddings(
 
     output = RequestFuncOutput()
     st = time.perf_counter()
+    output.start_time = st
     try:
         async with session.post(
             url=api_url,
@@ -575,11 +588,15 @@ async def async_request_openai_embeddings(
 
 # TODO: Add more request functions for different API protocols.
 ASYNC_REQUEST_FUNCS = {
-    "vllm": async_request_openai_completions_non_streaming,
-    "openai": async_request_openai_completions_non_streaming,
+    "vllm": async_request_openai_completions,
+    "openai": async_request_openai_completions,
     "openai-chat": async_request_openai_chat_completions,
     "openai-audio": async_request_openai_audio,
     "openai-embeddings": async_request_openai_embeddings,
+}
+
+NON_STREAMING_FUNCS = {
+    "openai": async_request_openai_completions_non_streaming
 }
 
 OPENAI_COMPATIBLE_BACKENDS = [
