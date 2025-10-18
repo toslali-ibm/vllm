@@ -395,7 +395,6 @@ async def benchmark(
             model=model_id,
             model_name=model_name,
             prompt=warmstart_prompt,
-            prefix_len=0,
             api_url=api_url,
             prompt_len=warmstart_prompt_len,
             output_len=warmstart_output_len,
@@ -470,10 +469,9 @@ async def benchmark(
                         "timestamp": timestamp
                     })
                 last_int_rps = current_int_rps
-        prompt, prompt_len, prefix_len, output_len, mm_content, request_id = (
+        prompt, prompt_len, output_len, mm_content, request_id = (
             request.prompt,
             request.prompt_len,
-            request.prefix_len,
             request.expected_output_len,
             request.multi_modal_data,
             request.request_id,
@@ -487,7 +485,6 @@ async def benchmark(
             model=req_model_id,
             model_name=req_model_name,
             prompt=prompt,
-            prefix_len=prefix_len,
             api_url=api_url,
             prompt_len=prompt_len,
             output_len=output_len,
@@ -571,7 +568,6 @@ async def benchmark(
                 "input_text": output.input_text,
                 "generated_text": output.generated_text,
                 "input_len": output.prompt_len,
-                "prefix_len": output.prefix_len,
                 "output_len": output.output_tokens,
                 "error": output.error,
                 "e2e_latency": output.latency,
