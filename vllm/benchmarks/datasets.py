@@ -2970,8 +2970,8 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
         for ind in range(num_requests):
             input_len = max(1, min(int(np.random.normal(
                 loc=input_len_mean, scale=input_len_std)), max_model_len))
-            prefix_hit_ratio = max(0, min(int(np.random.normal(
-                loc=prefix_hit_ratio_mean, scale=prefix_hit_ratio_std)), 1))
+            prefix_hit_ratio = max(0, min(np.random.normal(
+                loc=prefix_hit_ratio_mean, scale=prefix_hit_ratio_std), 1))
             prefix_len = int(prefix_hit_ratio * input_len)
             print(prefix_hit_ratio, prefix_len, input_len)
             prefix_idx = np.random.randint(0, len(all_prefixes))
