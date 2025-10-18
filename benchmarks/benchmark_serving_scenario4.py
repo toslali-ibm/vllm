@@ -683,7 +683,6 @@ def add_cli_args(parser: argparse.ArgumentParser):
     )
     parser.add_argument(
         "--streaming",
-        type=str,
         action="store_true",
         help="Whether to enable/disable request streaming for the benchmark."
     )
