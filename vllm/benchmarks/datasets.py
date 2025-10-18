@@ -2928,6 +2928,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
         random_seed
     ) -> None:
         super().__init__()
+        print("Prefix Random lengths dataset")
         self.random_seed = random_seed
         np.random.seed(self.random_seed)
 
