@@ -2973,6 +2973,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
             prefix_hit_ratio = max(0, min(int(np.random.normal(
                 loc=prefix_hit_ratio_mean, scale=prefix_hit_ratio_std)), 1))
             prefix_len = int(prefix_hit_ratio * input_len)
+            print(prefix_hit_ratio, prefix_len, input_len)
             prefix_idx = np.random.randint(0, len(all_prefixes))
             prefix_tokens = all_prefixes[prefix_idx][:prefix_len]
             suffix_len = input_len - prefix_len
