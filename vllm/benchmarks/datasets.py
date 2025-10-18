@@ -2928,7 +2928,6 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
         random_seed
     ) -> None:
         super().__init__()
-        print("Prefix Random lengths dataset")
         self.random_seed = random_seed
         np.random.seed(self.random_seed)
 
@@ -2972,7 +2971,7 @@ class PrefixRepetitionRandomLengthsDataset(BenchmarkDataset):
             input_len = max(1, min(int(np.random.normal(
                 loc=input_len_mean, scale=input_len_std)), max_model_len))
             prefix_hit_ratio = max(0, min(int(np.random.normal(
-                loc=prefix_hit_ratio_mean, scale=prefix_hit_ratio_std)), 100))
+                loc=prefix_hit_ratio_mean, scale=prefix_hit_ratio_std)), 1))
             prefix_len = int(prefix_hit_ratio * input_len)
             prefix_idx = np.random.randint(0, len(all_prefixes))
             prefix_tokens = all_prefixes[prefix_idx][:prefix_len]
