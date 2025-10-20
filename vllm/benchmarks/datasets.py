@@ -1345,7 +1345,7 @@ def add_dataset_parser(parser: FlexibleArgumentParser):
     prefix_repetition_random_length_group.add_argument(
         "--prefix-repetition-random-len-prefix-hit-ratio-std",
         type=float,
-        default=0.1,
+        default=0.05,
         help="Standard dev of % prefix hits with respect to input length"
         "for prefix repetition random lengths dataset.",
     )
