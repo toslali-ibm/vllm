@@ -22,7 +22,8 @@ from vllm.entrypoints.openai.protocol import (CompletionLogProbs,
                                               CompletionResponseChoice,
                                               CompletionResponseStreamChoice,
                                               CompletionStreamResponse,
-                                              ErrorResponse,
+                                              ErrorResponse, 
+                                              EventOut,
                                               PromptTokenUsageInfo,
                                               RequestResponseMetadata,
                                               UsageInfo)
@@ -92,6 +93,8 @@ class OpenAIServingCompletion(OpenAIServing):
             - suffix (the language models we currently support do not support
             suffix)
         """
+        server_hit_event = EventOut(event_type="SERVER_HIT", timestamp=time.monotonic())
+
         error_check_ret = await self._check_model(request)
         if error_check_ret is not None:
             return error_check_ret
@@ -292,6 +295,8 @@ class OpenAIServingCompletion(OpenAIServing):
                 tokenizer,
                 request_metadata,
             )
+            response.events.append(server_hit_event)
+
         except asyncio.CancelledError:
             return self.create_error_response("Client disconnected")
         except ValueError as e:
@@ -308,7 +313,10 @@ class OpenAIServingCompletion(OpenAIServing):
                 yield "data: [DONE]\n\n"
 
             return fake_stream_generator()
-
+        
+        server_left_event = EventOut(event_type="SERVER_LEFT", timestamp=time.monotonic())
+        response.events.append(server_left_event)
+        
         return response
 
     async def completion_stream_generator(
@@ -510,7 +518,11 @@ class OpenAIServingCompletion(OpenAIServing):
         num_generated_tokens = 0
         kv_transfer_params = None
         last_final_res = None
+        events = None 
+
         for final_res in final_res_batch:
+            events=[EventOut(event_type=e.type.name, timestamp=e.timestamp, step=e.step) for e in final_res.events]
+            
             last_final_res = final_res
             prompt_token_ids = final_res.prompt_token_ids
             assert prompt_token_ids is not None
@@ -601,6 +613,7 @@ class OpenAIServingCompletion(OpenAIServing):
             choices=choices,
             usage=usage,
             kv_transfer_params=kv_transfer_params,
+            events=events
         )
 
     def _create_completion_logprobs(

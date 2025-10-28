@@ -110,6 +110,13 @@ class CachedRequestData:
 
 
 @dataclass
+class SchedulerMetrics:
+    num_decode_reqs: int = 0
+    num_cache_miss_tokens: int = 0
+    num_cache_hit_tokens: int = 0
+    step_index: int = 0
+
+@dataclass
 class SchedulerOutput:
 
     # list of the requests that are scheduled for the first time.
@@ -155,3 +162,6 @@ class SchedulerOutput:
 
     # KV Cache Connector metadata.
     kv_connector_metadata: Optional[KVConnectorMetadata] = None
+    
+    # MERt: scheduler metrics
+    metrics: Optional[SchedulerMetrics] = None

@@ -168,6 +168,7 @@ class RequestState:
         finish_reason: Optional[FinishReason],
         stop_reason: Union[int, str, None],
         kv_transfer_params: Optional[dict[str, Any]] = None,
+        events = None,
     ) -> Optional[Union[RequestOutput, PoolingRequestOutput]]:
 
         finished = finish_reason is not None
@@ -195,7 +196,7 @@ class RequestState:
                 return None
 
         return self._new_request_output(request_id, outputs, finished,
-                                        kv_transfer_params)
+                                        kv_transfer_params, events)
 
     def _new_request_output(
         self,
@@ -203,6 +204,7 @@ class RequestState:
         outputs: Union[list[CompletionOutput], list[PoolingOutput]],
         finished: bool,
         kv_transfer_params: Optional[dict[str, Any]] = None,
+        events = None
     ) -> Union[RequestOutput, PoolingRequestOutput]:
 
         first_output = outputs[0]
@@ -230,6 +232,7 @@ class RequestState:
             finished=finished,
             kv_transfer_params=kv_transfer_params,
             num_cached_tokens=self.num_cached_tokens,
+            events = events
         )
 
     def _new_completion_output(
@@ -399,6 +402,7 @@ class OutputProcessor:
             kv_transfer_params = engine_core_output.kv_transfer_params
             req_state.num_cached_tokens = engine_core_output.num_cached_tokens
             req_state.is_prefilling = False
+            events = engine_core_output.events
 
             if pooling_output is None:
                 assert req_state.detokenizer is not None
@@ -418,7 +422,7 @@ class OutputProcessor:
             # 4) Create and handle RequestOutput objects.
             if request_output := req_state.make_request_output(
                     new_token_ids, pooling_output, finish_reason, stop_reason,
-                    kv_transfer_params):
+                    kv_transfer_params, events):
                 if req_state.queue is not None:
                     # AsyncLLM: put into queue for handling by generate().
                     req_state.queue.put(request_output)

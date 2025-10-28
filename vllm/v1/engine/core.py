@@ -16,6 +16,7 @@ from typing import Any, Callable, Optional, TypeVar, Union
 
 import msgspec
 import zmq
+import json
 
 from vllm.config import ParallelConfig, VllmConfig
 from vllm.distributed import stateless_destroy_torch_distributed_process_group
@@ -55,6 +56,23 @@ logger = init_logger(__name__)
 
 POLLING_TIMEOUT_S = 2.5
 HANDSHAKE_TIMEOUT_MINS = 5
+
+VLLM_INST_METRICS = {}
+FLUSH_INTERVAL_STEPS = int(os.getenv("FLUSH_INTERVAL_STEPS", 20))
+METRICS_FILENAME = os.getenv("METRICS_FILENAME", "metrics")
+
+
+def flush_metrics(metrics_dict, last_step, filepath="{}_{}.json"):
+    # Use last_step to create a unique filename
+    file_name = filepath.format(METRICS_FILENAME, last_step)
+
+    with open(file_name, "a") as f:
+        # Write the metrics as a JSON object with an indent for readability
+        json.dump(metrics_dict, f, indent=2)
+        f.write("\n")  # Ensure each entry is on a new line
+
+    # Clear the dictionary to free memory
+    metrics_dict.clear()
 
 _R = TypeVar('_R')  # Return type for collective_rpc
 
@@ -288,12 +306,35 @@ class EngineCore:
         # or finished and not yet removed from the batch.
         if not self.scheduler.has_requests():
             return {}, False
+        
+        # print(f"----- [Core step schedule]")
         scheduler_output = self.scheduler.schedule()
+        # print(f"----- [Core step schedule done]")
+        ## MERT: get metrics from scheduler_output
+        metrics = scheduler_output.metrics
+
+        # print(f"----- [Core step execture model]")
         model_output = self.execute_model_with_error_logging(
             self.model_executor.execute_model,  # type: ignore
             scheduler_output)
-        engine_core_outputs = self.scheduler.update_from_output(
+        
+        # print(f"----- [Core step execture model done]")
+        engine_core_outputs, num_finished_tokens, num_finished_reqs = self.scheduler.update_from_output(
             scheduler_output, model_output)  # type: ignore
+        
+        # print(f"----- [Core step update from output complete]")
+        
+
+        # Populate metrics dict, keyed by step_index
+        VLLM_INST_METRICS[metrics.step_index] = {
+            "num_finished_reqs": num_finished_reqs,
+            "num_decode_reqs": metrics.num_decode_reqs,
+            "num_finished_tokens": num_finished_tokens,
+            "num_cache_miss_tokens": metrics.num_cache_miss_tokens,
+            "num_cache_hit_tokens": metrics.num_cache_hit_tokens,
+            # loop_time will be filled in EngineCoreProc
+            "loop_time": None,
+        }
 
         return (engine_core_outputs,
                 scheduler_output.total_num_scheduled_tokens > 0)
@@ -359,6 +400,11 @@ class EngineCore:
         return engine_core_outputs, model_executed
 
     def shutdown(self):
+        # MERT: record/flush all data upon shutdown
+        print("---- Shutting down vLLM - flushing last metrics")
+        last_step = max(VLLM_INST_METRICS.keys())
+        flush_metrics(VLLM_INST_METRICS, last_step)
+        print("---- Shutting down vLLM - flushed last metrics")
         self.structured_output_manager.clear_backend()
         if self.model_executor:
             self.model_executor.shutdown()
@@ -727,6 +773,13 @@ class EngineCoreProc(EngineCore):
     def _init_data_parallel(self, vllm_config: VllmConfig):
         pass
 
+    def mert_print_metrics(self, metrics_dict):
+        for step, vals in sorted(metrics_dict.items()):
+            print(f"--- step {step} ---")
+            for k, v in vals.items():
+                print(f"{k} = {v}")
+            print()  # blank line between steps
+
     def run_busy_loop(self):
         """Core busy loop of the EngineCore."""
 
@@ -734,8 +787,34 @@ class EngineCoreProc(EngineCore):
         while True:
             # 1) Poll the input queue until there is work to do.
             self._process_input_queue()
+
             # 2) Step the engine core and return the outputs.
-            self._process_engine_step()
+            # print(f"----- [Busy loop process engine step]")
+            start_time = time.monotonic()
+            # print(f"----- [Busy loop start, timestamp: {start_time}]")
+            ran_model = self._process_engine_step()
+            end_time = time.monotonic()
+           
+            # MERT: record loop execution time ONLY FOR WHEN THERE IS REQS. 
+            loop_time = end_time - start_time
+            
+            # print(f"----- [Busy loop end, timestamp: {end_time} and start was {start_time}] and diff {loop_time}")
+
+            # Only record loop time if scheduler had requests
+            if ran_model:
+                # last step_index = max key in VLLM_INST_METRICS
+                if VLLM_INST_METRICS:
+                    last_step = max(VLLM_INST_METRICS.keys())
+                    # print(f"----- [Busy loop end last step {last_step}")
+                    VLLM_INST_METRICS[last_step]["loop_time"] = loop_time
+            # self.mert_print_metrics(VLLM_INST_METRICS)
+
+            # flush metrics periodically
+            last_step = max(VLLM_INST_METRICS.keys())
+            if last_step % FLUSH_INTERVAL_STEPS == 0:
+                flush_metrics(VLLM_INST_METRICS, last_step)
+
+
 
     def _process_input_queue(self):
         """Exits when an engine step needs to be performed."""

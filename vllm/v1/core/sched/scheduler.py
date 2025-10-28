@@ -22,7 +22,7 @@ from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
 from vllm.v1.core.kv_cache_manager import KVCacheBlocks, KVCacheManager
 from vllm.v1.core.sched.interface import SchedulerInterface
 from vllm.v1.core.sched.output import (CachedRequestData, NewRequestData,
-                                       SchedulerOutput)
+                                       SchedulerOutput, SchedulerMetrics)
 from vllm.v1.core.sched.request_queue import (SchedulingPolicy,
                                               create_request_queue)
 from vllm.v1.core.sched.utils import check_stop, remove_all
@@ -49,6 +49,7 @@ class Scheduler(SchedulerInterface):
         include_finished_set: bool = False,
         log_stats: bool = False,
     ) -> None:
+        self.STEP: int = 0  # class variable to track schedule() calls
         self.vllm_config = vllm_config
         self.scheduler_config = vllm_config.scheduler_config
         self.cache_config = vllm_config.cache_config
@@ -185,6 +186,13 @@ class Scheduler(SchedulerInterface):
         # num_tokens_with_spec. This is general enough to cover
         # chunked prefills, prefix caching, speculative decoding,
         # and the "jump decoding" optimization in the future.
+        self.STEP += 1
+
+        self.num_finished_reqs = 0
+        num_decode_reqs = 0
+        self.num_finished_tokens = 0
+        num_cache_miss_tokens = 0
+        num_cache_hit_tokens = 0
 
         scheduled_new_reqs: list[Request] = []
         scheduled_resumed_reqs: list[Request] = []
@@ -211,6 +219,9 @@ class Scheduler(SchedulerInterface):
             num_new_tokens = (request.num_tokens_with_spec +
                               request.num_output_placeholders -
                               request.num_computed_tokens)
+            
+
+
             if (0 < self.scheduler_config.long_prefill_token_threshold <
                     num_new_tokens):
                 num_new_tokens = (
@@ -274,7 +285,7 @@ class Scheduler(SchedulerInterface):
                     preempted_req.num_computed_tokens = 0
                     if self.log_stats:
                         preempted_req.record_event(
-                            EngineCoreEventType.PREEMPTED, scheduled_timestamp)
+                            EngineCoreEventType.PREEMPTED, scheduled_timestamp, self.STEP)
 
                     self.waiting.prepend_request(preempted_req)
                     preempted_reqs.append(preempted_req)
@@ -290,12 +301,23 @@ class Scheduler(SchedulerInterface):
                 break
             assert new_blocks is not None
 
+            # MERT num_decode_reqs: if num_new_tokens == 1 and num_computed_tokens > num_prompt_tokens, then this is decode request 
+            if num_new_tokens == 1 and request.num_computed_tokens >= request.num_prompt_tokens: 
+                num_decode_reqs = num_decode_reqs + 1
+
+            # MERT: Cache accounting for running requests
+            num_cache_hit_tokens += request.num_computed_tokens
+            if request.num_computed_tokens < request.num_prompt_tokens:
+                num_cache_miss_tokens += num_new_tokens
+
             # Schedule the request.
             scheduled_running_reqs.append(request)
             req_to_new_blocks[request.request_id] = new_blocks
             num_scheduled_tokens[request.request_id] = num_new_tokens
             token_budget -= num_new_tokens
             req_index += 1
+
+
 
             # Speculative decode related.
             if request.spec_token_ids:
@@ -374,12 +396,18 @@ class Scheduler(SchedulerInterface):
                 num_external_computed_tokens = 0
                 load_kv_async = False
 
+
+                # MERT: 
                 # Get already-cached tokens.
                 if request.num_computed_tokens == 0:
                     # Get locally-cached tokens.
                     new_computed_blocks, num_new_local_computed_tokens = \
                         self.kv_cache_manager.get_computed_blocks(
                             request)
+                    
+                    if self.log_stats:
+                        request.record_event(EngineCoreEventType.PREFIX,
+                                            None, num_new_local_computed_tokens)
 
                     # Get externally-cached tokens if using a KVConnector.
                     if self.connector is not None:
@@ -411,6 +439,8 @@ class Scheduler(SchedulerInterface):
                     # `request.num_prompt_tokens` to consider the resumed
                     # requests, which have output tokens.
                     num_new_tokens = request.num_tokens - num_computed_tokens
+
+
                     if (0 < self.scheduler_config.long_prefill_token_threshold
                             < num_new_tokens):
                         num_new_tokens = (
@@ -425,6 +455,16 @@ class Scheduler(SchedulerInterface):
                         continue
 
                     num_new_tokens = min(num_new_tokens, token_budget)
+
+                    ## MERT num_cache_miss_tokens and num_cache_hit_tokens: 
+                    # num_new_tokens is cache MISS, and num_computed_tokens is CACHE HIT -- 
+                    # decode - you have no CACHE MISS
+                    # Always count hits
+                    num_cache_hit_tokens += request.num_computed_tokens
+
+                    # Misses only during prefill
+                    if request.num_computed_tokens < request.num_prompt_tokens:
+                        num_cache_miss_tokens += num_new_tokens
                     assert num_new_tokens > 0
 
                     # Schedule encoder inputs.
@@ -502,7 +542,8 @@ class Scheduler(SchedulerInterface):
                 self.running.append(request)
                 if self.log_stats:
                     request.record_event(EngineCoreEventType.SCHEDULED,
-                                         scheduled_timestamp)
+                                         scheduled_timestamp, self.STEP)
+                
                 if request.status == RequestStatus.WAITING:
                     scheduled_new_reqs.append(request)
                 elif request.status == RequestStatus.PREEMPTED:
@@ -572,6 +613,15 @@ class Scheduler(SchedulerInterface):
         structured_output_request_ids, grammar_bitmask = (
             self.get_grammar_bitmask(self.running,
                                      scheduled_spec_decode_tokens))
+
+        # Pack into SchedulerMetrics
+        metrics = SchedulerMetrics(
+            num_decode_reqs=num_decode_reqs,
+            num_cache_miss_tokens=num_cache_miss_tokens,
+            num_cache_hit_tokens=num_cache_hit_tokens,
+            step_index=self.STEP,
+        )
+
         scheduler_output = SchedulerOutput(
             scheduled_new_reqs=new_reqs_data,
             scheduled_cached_reqs=cached_reqs_data,
@@ -589,6 +639,7 @@ class Scheduler(SchedulerInterface):
             get_freed_mm_hashes(),
             structured_output_request_ids=structured_output_request_ids,
             grammar_bitmask=grammar_bitmask,
+            metrics=metrics
         )
 
         # NOTE(Kuntai): this function is designed for multiple purposes:
@@ -851,7 +902,7 @@ class Scheduler(SchedulerInterface):
         self,
         scheduler_output: SchedulerOutput,
         model_runner_output: ModelRunnerOutput,
-    ) -> dict[int, EngineCoreOutputs]:
+    ) -> tuple[dict[int, EngineCoreOutputs], int, int]:
         sampled_token_ids = model_runner_output.sampled_token_ids
         logprobs = model_runner_output.logprobs
         prompt_logprobs_dict = model_runner_output.prompt_logprobs_dict
@@ -916,6 +967,9 @@ class Scheduler(SchedulerInterface):
                                      pooler_output)
 
             if stopped:
+                if self.log_stats:
+                    request.record_event(EngineCoreEventType.FINISHED, time.monotonic(), self.STEP)
+                    
                 kv_transfer_params = self._free_request(request)
                 if status_before_stop == RequestStatus.RUNNING:
                     stopped_running_reqs.add(request)
@@ -1004,7 +1058,7 @@ class Scheduler(SchedulerInterface):
                 engine_core_outputs[0] = eco = EngineCoreOutputs()
             eco.scheduler_stats = stats
 
-        return engine_core_outputs
+        return engine_core_outputs, self.num_finished_tokens, self.num_finished_reqs
 
     def _update_request_with_output(
         self,
@@ -1077,7 +1131,7 @@ class Scheduler(SchedulerInterface):
         self.waiting.add_request(request)
         self.requests[request.request_id] = request
         if self.log_stats:
-            request.record_event(EngineCoreEventType.QUEUED)
+            request.record_event(EngineCoreEventType.QUEUED, time.monotonic(), self.STEP)
 
     def finish_requests(
         self,
@@ -1126,6 +1180,7 @@ class Scheduler(SchedulerInterface):
     def _free_request(self, request: Request) -> Optional[dict[str, Any]]:
         assert request.is_finished()
 
+
         delay_free_blocks, kv_xfer_params = self._connector_finished(request)
         self.encoder_cache_manager.free(request)
         request_id = request.request_id
@@ -1135,6 +1190,10 @@ class Scheduler(SchedulerInterface):
 
         if not delay_free_blocks:
             self._free_blocks(request)
+
+        # MERT: update finished tokens
+        self.num_finished_tokens += request.num_computed_tokens
+        self.num_finished_reqs += 1
 
         return kv_xfer_params
 
