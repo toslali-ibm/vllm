@@ -35,7 +35,7 @@ async def wait_for_endpoint(
     """
     deadline = time.perf_counter() + timeout_seconds
     output = RequestFuncOutput(success=False)
-    print(f"Waiting for endpoint to become up in {timeout_seconds} seconds")
+    # print(f"Waiting for endpoint to become up in {timeout_seconds} seconds")
     
     with tqdm(
         total=timeout_seconds, 
