@@ -103,6 +103,10 @@ class ParallelConfig:
     prefix_routing_length: int = 16
     """Number of tokens to use as the prefix for routing decisions.
     Only used when enable_prefix_aware_routing is True."""
+    enable_random_routing: bool = False
+    """Enable random routing for data parallel load balancing.
+    When enabled, requests are randomly assigned to engines.
+    Useful for baseline comparison and testing."""
     enable_expert_parallel: bool = False
     """Use expert parallelism instead of tensor parallelism for MoE layers."""
     enable_eplb: bool = False

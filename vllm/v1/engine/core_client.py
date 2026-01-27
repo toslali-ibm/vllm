@@ -101,6 +101,8 @@ class EngineCoreClient(ABC):
             # Choose routing strategy based on config
             if parallel_config.enable_prefix_aware_routing:
                 return PrefixAwareDPLBAsyncMPClient(*client_args)
+            if parallel_config.enable_random_routing:
+                return RandomDPLBAsyncMPClient(*client_args)
             return DPLBAsyncMPClient(*client_args)
         return AsyncMPClient(*client_args)
 
@@ -1424,3 +1426,44 @@ class PrefixAwareDPLBAsyncMPClient(DPLBAsyncMPClient):
         logger.info(
             "[Elastic EP] Scale down completed, new data parallel size: %s",
             new_data_parallel_size)
+
+
+class RandomDPLBAsyncMPClient(DPLBAsyncMPClient):
+    """Data parallel load-balancing client with random routing.
+
+    Routes requests randomly to engines. Useful for baseline comparison
+    and testing against smarter routing strategies.
+    """
+
+    def __init__(self,
+                 vllm_config: VllmConfig,
+                 executor_class: type[Executor],
+                 log_stats: bool,
+                 client_addresses: Optional[dict[str, str]] = None,
+                 client_count: int = 1,
+                 client_index: int = 0):
+        super().__init__(vllm_config, executor_class, log_stats,
+                         client_addresses, client_count, client_index)
+
+        logger.info("Initialized RandomDPLBAsyncMPClient with num_engines=%d",
+                    len(self.core_engines))
+
+    def get_core_engine_for_request(
+            self, request: EngineCoreRequest) -> EngineIdentity:
+        # Handle explicit data_parallel_rank override
+        if (eng_index := request.data_parallel_rank) is not None:
+            chosen_engine = self.core_engines[eng_index]
+            self.reqs_in_flight[request.request_id] = chosen_engine
+            return chosen_engine
+
+        # Random selection
+        import random
+        num_engines = len(self.core_engines)
+        eng_index = random.randint(0, num_engines - 1)
+
+        logger.debug("Random routing: request %s to engine %d",
+                     request.request_id, eng_index)
+
+        chosen_engine = self.core_engines[eng_index]
+        self.reqs_in_flight[request.request_id] = chosen_engine
+        return chosen_engine

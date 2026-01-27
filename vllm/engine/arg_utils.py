@@ -318,6 +318,7 @@ class EngineArgs:
     data_parallel_backend: str = ParallelConfig.data_parallel_backend
     enable_prefix_aware_routing: bool = ParallelConfig.enable_prefix_aware_routing
     prefix_routing_length: int = ParallelConfig.prefix_routing_length
+    enable_random_routing: bool = ParallelConfig.enable_random_routing
     enable_expert_parallel: bool = ParallelConfig.enable_expert_parallel
     eplb_config: EPLBConfig = get_field(ParallelConfig, "eplb_config")
     enable_eplb: bool = ParallelConfig.enable_eplb
@@ -682,6 +683,9 @@ class EngineArgs:
         parallel_group.add_argument(
             "--prefix-routing-length",
             **parallel_kwargs["prefix_routing_length"])
+        parallel_group.add_argument(
+            "--enable-random-routing",
+            **parallel_kwargs["enable_random_routing"])
         parallel_group.add_argument(
             "--enable-expert-parallel",
             **parallel_kwargs["enable_expert_parallel"])
@@ -1316,6 +1320,7 @@ class EngineArgs:
             data_parallel_hybrid_lb=self.data_parallel_hybrid_lb,
             enable_prefix_aware_routing=self.enable_prefix_aware_routing,
             prefix_routing_length=self.prefix_routing_length,
+            enable_random_routing=self.enable_random_routing,
             enable_expert_parallel=self.enable_expert_parallel,
             enable_eplb=self.enable_eplb,
             eplb_config=self.eplb_config,
