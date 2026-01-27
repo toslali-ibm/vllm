@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import asyncio
+import random
 import time
 from dataclasses import dataclass
 from typing import List
@@ -69,6 +70,13 @@ async def send_request(client: AsyncOpenAI, model: str, prompt: str,
         print(f"Request failed: {e}")
         return -1
 
+def random_word(min_len=3, max_len=10):
+    import string
+    letters = string.ascii_lowercase
+    return "".join(random.choices(letters, k=random.randint(min_len, max_len)))
+
+def random_words(n):
+    return " ".join(random_word() for _ in range(n))
 
 async def run_benchmark(args):
     """Run the benchmark."""
@@ -88,8 +96,9 @@ async def run_benchmark(args):
     client = AsyncOpenAI(api_key="EMPTY", base_url=args.api_base)
 
     # Generate base prefix
-    base_prefix = ("The quick brown fox jumps over the lazy dog. " *
-                   20)[:args.prefix_length]
+    shared_body = random_word() + " "
+    # base_prefix = ("The quick brown fox jumps over the lazy dog. " *
+    #                20)[:args.prefix_length]
 
     latencies_unique = []
     latencies_duplicate = []
@@ -111,8 +120,10 @@ async def run_benchmark(args):
             counter = i - 1  # Same as previous
         else:
             counter = i
+        
+        base_prefix = shared_body * args.prefix_length
 
-        prompt = f"Request {counter}: {base_prefix} Tell me more."
+        prompt = f"Request {counter} {base_prefix} {random_words(random.randint(40, 1000))}"
 
         # Send request
         latency = await send_request(client, args.model, prompt,
@@ -207,7 +218,7 @@ def main():
                         help="Number of requests")
     parser.add_argument("--rps",
                         type=float,
-                        default=2.0,
+                        default=1.0,
                         help="Requests per second")
     parser.add_argument("--num-engines",
                         type=int,
@@ -215,12 +226,12 @@ def main():
                         help="Number of data parallel engines")
     parser.add_argument("--max-tokens",
                         type=int,
-                        default=20,
+                        default=2,
                         help="Max tokens to generate")
     parser.add_argument("--prefix-length",
                         type=int,
-                        default=500,
-                        help="Approximate prefix length in characters")
+                        default=2000,
+                        help="Approximate prefix length in words")
 
     args = parser.parse_args()
 

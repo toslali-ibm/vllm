@@ -14,6 +14,19 @@ PYTHONPATH=/workspace/vllm python -m vllm.entrypoints.openai.api_server \
     --enable-prefix-aware-routing \
     --prefix-routing-length 16
 
+PYTHONPATH=/workspace/vllm python -m vllm.entrypoints.openai.api_server \
+    --model codellama/CodeLlama-34b-Instruct-hf \
+    --max-num-batched_tokens 4096 \ 
+    --max-num-seqs 256 \
+    --max-model-len 4096 \
+    --data-parallel-size 2 \
+    --enable-prefix-aware-routing \
+    --prefix-routing-length 16
+    
+
+### workload
+python examples/online_serving/benchmark_prefix_routing.py --num-requests 200 --rps 4.0 --num-engines 2
+
 ## Implementation Overview
 
 The prefix-aware router routes requests with the same token prefix to the same engine to improve cache hit rates, while load-balancing new prefixes across engines.
