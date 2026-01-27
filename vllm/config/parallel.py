@@ -96,6 +96,17 @@ class ParallelConfig:
     between local data parallel ranks, but an external LB balances
     between vLLM nodes/replicas. Set explicitly in conjunction with
     --data-parallel-start-rank."""
+    enable_prefix_aware_routing: bool = False
+    """Enable prefix-aware routing for data parallel load balancing.
+    When enabled, requests with the same token prefix will be routed
+    to the same engine to improve prefix cache hit rates."""
+    prefix_routing_length: int = 16
+    """Number of tokens to use as the prefix for routing decisions.
+    Only used when enable_prefix_aware_routing is True."""
+    enable_random_routing: bool = False
+    """Enable random routing for data parallel load balancing.
+    When enabled, requests are randomly assigned to engines.
+    Useful for baseline comparison and testing."""
     enable_expert_parallel: bool = False
     """Use expert parallelism instead of tensor parallelism for MoE layers."""
     enable_eplb: bool = False
@@ -279,6 +290,12 @@ class ParallelConfig:
         return hashlib.sha256(str(factors).encode()).hexdigest()
 
     def __post_init__(self) -> None:
+        # Log prefix-aware routing configuration if enabled
+        if self.enable_prefix_aware_routing:
+            logger.info(
+                "Prefix-aware routing enabled with prefix_length=%d",
+                self.prefix_routing_length)
+
         # Forward deprecated fields to their new location
         if self.num_redundant_experts is not None:
             self.eplb_config.num_redundant_experts = (
