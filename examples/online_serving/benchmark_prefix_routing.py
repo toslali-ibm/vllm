@@ -107,7 +107,9 @@ async def run_benchmark(args):
     print("Running benchmark...")
     start_time = time.time()
 
-    for i in range(args.num_requests):
+    i = 1
+    while i < args.num_requests:
+        
         # Target send time for rate limiting
         target_time = start_time + (i * delta_t)
         await asyncio.sleep(max(0, target_time - time.time()))
@@ -117,15 +119,16 @@ async def run_benchmark(args):
 
         # Create prompt
         if is_dup:
-            counter = i - 1  # Same as previous
+            counter = i - random.choice([1, 2])  # Same as previous
         else:
             counter = i
         
         base_prefix = shared_body * args.prefix_length
 
-        prompt = f"Request {counter} {base_prefix} {random_words(random.randint(40, 1000))}"
+        prompt = f"Request {counter} {base_prefix} {random_words(random.randint(40, 100))}"
 
         print(prompt[:300])
+        i = i + 1
 
         # Send request
         latency = await send_request(client, args.model, prompt,
