@@ -286,6 +286,12 @@ class ParallelConfig:
         return hashlib.sha256(str(factors).encode()).hexdigest()
 
     def __post_init__(self) -> None:
+        # Log prefix-aware routing configuration if enabled
+        if self.enable_prefix_aware_routing:
+            logger.info(
+                "Prefix-aware routing enabled with prefix_length=%d",
+                self.prefix_routing_length)
+
         # Forward deprecated fields to their new location
         if self.num_redundant_experts is not None:
             self.eplb_config.num_redundant_experts = (

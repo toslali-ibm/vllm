@@ -1215,6 +1215,14 @@ class PrefixAwareDPLBAsyncMPClient(DPLBAsyncMPClient):
         self.prefix_to_engine_map: dict[tuple[int, ...], int] = {}
         self.prefix_length = vllm_config.parallel_config.prefix_routing_length
 
+        # Statistics for logging
+        self.total_requests = 0
+        self.cache_hits = 0
+
+        logger.info(
+            "Initialized PrefixAwareDPLBAsyncMPClient with prefix_length=%d, "
+            "num_engines=%d", self.prefix_length, len(self.core_engines))
+
     def get_core_engine_for_request(
             self, request: EngineCoreRequest) -> EngineIdentity:
         # Handle explicit data_parallel_rank override
@@ -1231,9 +1239,15 @@ class PrefixAwareDPLBAsyncMPClient(DPLBAsyncMPClient):
         current_counts = self.lb_engines
         num_engines = len(current_counts)
 
-        if prefix in self.prefix_to_engine_map:
+        is_cache_hit = prefix in self.prefix_to_engine_map
+        if is_cache_hit:
             # Route to previously assigned engine for this prefix
             eng_index = self.prefix_to_engine_map[prefix]
+            self.cache_hits += 1
+            logger.debug(
+                "Prefix cache HIT: routing request %s to engine %d "
+                "(prefix: %s...)", request.request_id, eng_index,
+                str(prefix[:4]) if len(prefix) >= 4 else str(prefix))
         else:
             # New prefix: find least-loaded engine
             min_score = sys.maxsize
@@ -1247,6 +1261,22 @@ class PrefixAwareDPLBAsyncMPClient(DPLBAsyncMPClient):
                     eng_index = idx
             # Remember this prefix->engine mapping
             self.prefix_to_engine_map[prefix] = eng_index
+            logger.debug(
+                "Prefix cache MISS: routing new prefix to engine %d "
+                "(prefix: %s..., load score: %d)", eng_index,
+                str(prefix[:4]) if len(prefix) >= 4 else str(prefix),
+                min_score)
+
+        # Track statistics
+        self.total_requests += 1
+        # Log statistics every 100 requests
+        if self.total_requests % 100 == 0:
+            hit_rate = (self.cache_hits /
+                        self.total_requests * 100) if self.total_requests > 0 else 0
+            logger.info(
+                "Prefix routing stats: %d requests, %d cache hits (%.1f%%), "
+                "%d unique prefixes", self.total_requests, self.cache_hits,
+                hit_rate, len(self.prefix_to_engine_map))
 
         # Increment local waiting count
         current_counts[eng_index][0] += self.client_count
