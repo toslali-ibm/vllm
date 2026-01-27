@@ -141,12 +141,18 @@ async def run_benchmark(args):
 
     total_success = stats_unique.count + stats_dup.count
 
+    # Calculate overall average latency
+    all_latencies = latencies_unique + latencies_duplicate
+    overall_avg_latency = (sum(all_latencies) /
+                           len(all_latencies)) if all_latencies else 0
+
     print(f"\nTotal:")
     print(f"  Requests: {args.num_requests}")
     print(f"  Successful: {total_success}")
     print(f"  Failed: {args.num_requests - total_success}")
     print(f"  Time: {total_time:.2f}s")
     print(f"  Actual RPS: {total_success / total_time:.2f}")
+    print(f"  Overall Avg Latency: {overall_avg_latency:.3f}s")
 
     if stats_unique.count > 0:
         print(f"\nUnique Requests (Cache MISS):")
