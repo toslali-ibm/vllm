@@ -24,7 +24,7 @@ from typing import List
 
 from openai import AsyncOpenAI
 
-
+random.seed(42)
 @dataclass
 class LatencyStats:
     """Latency statistics."""
