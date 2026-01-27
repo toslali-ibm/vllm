@@ -2,6 +2,18 @@
 
 This document summarizes the implementation of prefix-aware routing for vLLM's data parallel load balancing system.
 
+## Instructions
+git clone --branch router https://github.com/toslali-ibm/vllm.git
+cp /usr/local/lib/python3.10/dist-packages/vllm/*.so /workspace/vllm/vllm/
+cp -r /usr/local/lib/python3.10/dist-packages/vllm/vllm_flash_attn /workspace/vllm/vllm/
+
+
+PYTHONPATH=/workspace/vllm python -m vllm.entrypoints.openai.api_server \
+    --model Qwen/Qwen2.5-0.5B \
+    --data-parallel-size 2 \
+    --enable-prefix-aware-routing \
+    --prefix-routing-length 16
+
 ## Implementation Overview
 
 The prefix-aware router routes requests with the same token prefix to the same engine to improve cache hit rates, while load-balancing new prefixes across engines.
