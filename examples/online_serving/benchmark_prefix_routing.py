@@ -125,6 +125,8 @@ async def run_benchmark(args):
 
         prompt = f"Request {counter} {base_prefix} {random_words(random.randint(40, 1000))}"
 
+        print(prompt[:300])
+
         # Send request
         latency = await send_request(client, args.model, prompt,
                                      args.max_tokens)
