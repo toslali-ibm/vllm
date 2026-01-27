@@ -12,9 +12,7 @@ cp -r /usr/local/lib/python3.10/dist-packages/vllm/vllm_flash_attn /workspace/vl
 ### run codellama with prefix aware routing
 PYTHONPATH=/workspace/vllm python -m vllm.entrypoints.openai.api_server \
     --model codellama/CodeLlama-34b-Instruct-hf \
-    --max-num-batched_tokens 4096 \ 
-    --max-num-seqs 256 \
-    --max-model-len 4096 \
+    --max-model-len 8192 \
     --data-parallel-size 2 \
     --enable-prefix-aware-routing \
     --prefix-routing-length 16
@@ -22,13 +20,11 @@ PYTHONPATH=/workspace/vllm python -m vllm.entrypoints.openai.api_server \
 ### ### run codellama with default router
 python -m vllm.entrypoints.openai.api_server \
     --model codellama/CodeLlama-34b-Instruct-hf \
-    --max-num-batched_tokens 4096 \ 
-    --max-num-seqs 256 \
-    --max-model-len 4096 \
+    --max-model-len 8192 \
     --data-parallel-size 2 
     
 ### workload
-python examples/online_serving/benchmark_prefix_routing.py --num-requests 100 --rps 1.0 --num-engines 2  --model codellama/CodeLlama-34b-Instruct-hf
+python examples/online_serving/benchmark_prefix_routing.py --num-requests 50 --rps 1.0 --num-engines 2  --model codellama/CodeLlama-34b-Instruct-hf
 
 
 
