@@ -22,6 +22,15 @@ python -m vllm.entrypoints.openai.api_server \
     --model codellama/CodeLlama-34b-Instruct-hf \
     --max-model-len 8192 \
     --data-parallel-size 2 
+
+
+### run model w/ random router
+PYTHONPATH=/workspace/vllm python -m vllm.entrypoints.openai.api_server \
+    --model codellama/CodeLlama-34b-Instruct-hf \
+    --max-model-len 8192 \
+    --data-parallel-size 2 \
+    --enable-random-routing
+
     
 ### workload
 python examples/online_serving/benchmark_prefix_routing.py --num-requests 50 --rps 1.0 --num-engines 2  --model codellama/CodeLlama-34b-Instruct-hf

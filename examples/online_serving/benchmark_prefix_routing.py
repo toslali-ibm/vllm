@@ -70,7 +70,7 @@ async def send_request(client: AsyncOpenAI, model: str, prompt: str,
         print(f"Request failed: {e}")
         return -1
 
-def random_word(min_len=2, max_len=3):
+def random_word(min_len=3, max_len=3):
     import string
     letters = string.ascii_lowercase
     return "".join(random.choices(letters, k=random.randint(min_len, max_len)))
